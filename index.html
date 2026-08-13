@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>MC Invitational — Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:ital,wght@0,600;0,700;0,800;1,800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --water:#0B2A3A; --water-2:#0E3346; --grid:#1B4157;
+  --sail:#F4F6F4; --leader:#F2C14E; --wind:#6FD3C6;
+  --flagR:#E24B34; --mark:#F0862C; --haze:#7F9AAC; --panel:#0A2230;
+  --live:#3DDC84;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden;background:var(--water);color:var(--sail);
+  font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased;
+  -webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+#app{display:flex;flex-direction:column;height:100dvh}
+
+header{padding:10px 14px 8px;display:flex;align-items:center;justify-content:space-between;gap:10px;
+  border-bottom:1px solid var(--grid);flex:0 0 auto}
+.hleft{display:flex;align-items:center;gap:9px;min-width:0}
+.hright{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.sizer{display:flex;flex-direction:column;gap:3px}
+.sizer button{font-size:12px;line-height:1;padding:3px 6px;border-radius:6px;
+  border:1px solid var(--grid);background:var(--water-2);color:var(--sail);cursor:pointer}
+.sizer button:active{background:var(--grid)}
+.title{font-family:'Saira Condensed',sans-serif;font-weight:800;font-style:italic;
+  font-size:19px;letter-spacing:.01em;line-height:1;display:flex;align-items:center;gap:8px}
+.title small{font-style:normal;font-weight:600;color:var(--haze);font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;display:block;margin-bottom:1px}
+.livebadge{font-family:'Inter',sans-serif;font-style:normal;font-weight:700;font-size:10px;letter-spacing:.1em;
+  background:var(--live);color:#04220f;padding:3px 8px;border-radius:20px;display:none;align-items:center;gap:5px}
+.livebadge::before{content:'';width:6px;height:6px;border-radius:50%;background:#04220f;animation:blink 1.4s infinite}
+@keyframes blink{50%{opacity:.25}}
+.livebadge.on{display:inline-flex}
+.livebadge.stale{background:var(--haze);color:var(--water)}
+.clock{font-family:'Saira Condensed',sans-serif;font-weight:700;font-size:16px;color:var(--wind);
+  font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+.clock b{color:var(--sail)}
+.clock small{display:block;font-size:10px;color:var(--haze);letter-spacing:.08em;font-weight:600}
+
+.stage{flex:1;position:relative;min-height:0}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+.board{position:absolute;top:10px;left:10px;width:186px;max-height:calc(100% - 20px);
+  background:rgba(10,34,48,.82);backdrop-filter:blur(8px);border:1px solid var(--grid);
+  border-radius:12px;padding:8px 6px 8px 8px;overflow:hidden;display:flex;flex-direction:column;
+  transition:transform .2s}
+.board.hid{transform:translateX(-105%)}
+.boardhead{display:flex;gap:6px;margin:0 2px 8px;flex:0 0 auto}
+.boardhead .raceSel{flex:1;min-width:0}
+.replaybtn{flex:0 0 auto;width:34px;border-radius:8px;border:1px solid var(--grid);
+  background:var(--water-2);color:var(--wind);font-size:19px;line-height:1;cursor:pointer;padding:0;
+  display:flex;align-items:center;justify-content:center}
+.replaybtn.on{background:var(--wind);color:var(--water);border-color:var(--wind)}
+.board h2{font-family:'Saira Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--haze);margin:0 2px 6px;flex:0 0 auto;display:flex;justify-content:space-between}
+.board h2 span{color:var(--wind)}
+.rows{overflow-y:auto;flex:1;scrollbar-width:thin}
+.row{display:flex;align-items:center;gap:7px;padding:3px 3px;border-radius:7px;font-size:13px;line-height:1.15}
+.row .pos{font-family:'Saira Condensed',sans-serif;font-weight:800;font-size:14px;width:18px;text-align:right;
+  color:var(--haze);font-variant-numeric:tabular-nums;flex:0 0 auto}
+.row .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.row .who{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .who b{font-weight:600}
+.row .pts{font-family:'Saira Condensed',sans-serif;font-weight:800;font-size:13px;color:var(--wind);flex:0 0 auto;font-variant-numeric:tabular-nums}
+.row .who i{font-style:normal;color:var(--haze);font-size:11px}
+.row.lead{background:rgba(242,193,78,.14)}
+.row.lead .pos{color:var(--leader)}
+.row.fin .who i{color:var(--wind)}
+.row.sel{background:rgba(111,211,198,.18);outline:1px solid var(--wind)}
+.boardtab{position:absolute;top:10px;left:10px;width:34px;height:34px;border-radius:10px;
+  background:rgba(10,34,48,.85);border:1px solid var(--grid);color:var(--haze);
+  display:flex;align-items:center;justify-content:center;font-size:15px;z-index:2;cursor:pointer}
+
+.scorecard{position:absolute;z-index:6;pointer-events:none;opacity:0;transition:opacity .12s;
+  background:rgba(10,34,48,.96);backdrop-filter:blur(8px);border:1px solid var(--wind);
+  border-radius:10px;padding:9px 11px;min-width:150px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.scorecard.on{opacity:1}
+.scorecard .sc-h{font-family:'Saira Condensed',sans-serif;font-weight:800;font-size:15px;line-height:1.1}
+.scorecard .sc-n{font-size:11px;color:var(--haze);margin-bottom:6px}
+.scorecard table{border-collapse:collapse;font-size:12px;width:100%}
+.scorecard td{padding:2px 0}
+.scorecard td.r{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.scorecard tr.tot td{border-top:1px solid var(--grid);padding-top:4px;color:var(--wind);font-weight:800}
+.readout{position:absolute;top:10px;right:10px;background:rgba(10,34,48,.82);backdrop-filter:blur(8px);
+  border:1px solid var(--grid);border-radius:12px;padding:9px 12px;min-width:120px;text-align:right;
+  opacity:0;transform:translateY(-4px);transition:.15s;pointer-events:none}
+.readout.on{opacity:1;transform:none}
+.readout .rn{font-family:'Saira Condensed',sans-serif;font-weight:800;font-size:20px;line-height:1}
+.readout .rw{font-size:12px;color:var(--haze);margin-top:1px}
+.readout .rs{margin-top:5px;font-size:12px;color:var(--wind);font-variant-numeric:tabular-nums}
+
+.status{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:10px;text-align:center;padding:30px;pointer-events:none}
+.status .big{font-family:'Saira Condensed',sans-serif;font-weight:800;font-style:italic;font-size:26px}
+.status .sub2{color:var(--haze);font-size:13px;line-height:1.6;max-width:280px}
+.status .pulse{width:14px;height:14px;border-radius:50%;background:var(--wind);animation:blink 1.4s infinite;margin-bottom:4px}
+.status.hid{display:none}
+
+.hint{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--haze);
+  background:rgba(10,34,48,.7);padding:4px 10px;border-radius:20px;white-space:nowrap;transition:opacity .4s}
+
+.bar{flex:0 0 auto;padding:10px 14px 14px;border-top:1px solid var(--grid);
+  display:flex;align-items:center;gap:12px;background:var(--panel)}
+.playbtn{width:40px;height:40px;flex:0 0 auto;border-radius:50%;border:none;cursor:pointer;
+  background:var(--wind);color:var(--water);display:flex;align-items:center;justify-content:center;padding:0}
+.playbtn svg{width:18px;height:18px}
+.playbtn:active{filter:brightness(.9)}
+.livebtn{flex:0 0 auto;font-family:'Saira Condensed',sans-serif;font-weight:800;font-size:13px;letter-spacing:.08em;
+  padding:10px 12px;border-radius:10px;border:1px solid var(--grid);background:transparent;color:var(--haze);cursor:pointer}
+.livebtn.on{background:var(--live);color:#04220f;border-color:var(--live)}
+.scrub{flex:1;display:flex;flex-direction:column;gap:3px}
+.track{position:relative;height:26px;display:flex;align-items:center}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:3px;
+  background:var(--grid);outline:none;margin:0}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;
+  background:var(--sail);cursor:pointer;border:3px solid var(--wind)}
+input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--sail);
+  cursor:pointer;border:3px solid var(--wind)}
+.startflag{position:absolute;width:2px;height:14px;background:var(--flagR);top:6px;pointer-events:none;border-radius:1px}
+.ticks{display:flex;justify-content:space-between;font-size:10px;color:var(--haze);letter-spacing:.04em}
+.viewsel{flex:0 0 auto;font-family:'Saira Condensed',sans-serif;font-weight:700;font-size:11px;
+  letter-spacing:.06em;background:var(--water-2);color:var(--sail);border:1px solid var(--grid);
+  border-radius:8px;padding:6px 4px}
+.seg{display:flex;flex:0 0 auto;border:1px solid var(--grid);border-radius:8px;overflow:hidden}
+.seg button{font-family:'Saira Condensed',sans-serif;font-weight:700;font-size:11px;letter-spacing:.06em;
+  padding:6px 8px;border:none;background:transparent;color:var(--haze);cursor:pointer}
+.seg button.on{background:var(--live);color:#04220f}
+.raceSel{flex:0 0 auto;font-family:'Saira Condensed',sans-serif;font-weight:700;font-size:13px;
+  background:var(--water-2);color:var(--sail);border:1px solid var(--grid);border-radius:8px;padding:8px 6px}
+@media (max-width:420px){ .board{width:152px} .row{font-size:12px} }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="hleft">
+      <div class="title"><small>2026 MC ILYA Championship</small><span id="raceTitle">Connecting…</span></div>
+      <span class="livebadge" id="badge">LIVE</span>
+    </div>
+    <div class="hright">
+      <div class="sizer">
+        <button id="szUp" aria-label="Bigger boats">⛵+</button>
+        <button id="szDn" aria-label="Smaller boats">⛵−</button>
+      </div>
+      <div class="clock" id="clock"><small id="stageTxt"></small><b>–</b></div>
+    </div>
+  </header>
+  <div class="stage">
+    <canvas id="c"></canvas>
+    <div class="boardtab" id="boardtab">≡</div>
+    <div class="board" id="board">
+      <div class="boardhead">
+        <select class="raceSel" id="raceSel"></select>
+        <button class="replaybtn" id="replayBtn" title="Replay this race from the start">⟲</button>
+      </div>
+      <h2><span id="boardTitle">Running order</span> <span id="ostat"></span></h2>
+      <div class="rows" id="rows"></div>
+    </div>
+    <div class="scorecard" id="scorecard"></div>
+    <div class="readout" id="readout">
+      <div class="rn" id="ro-n"></div>
+      <div class="rw" id="ro-w"></div>
+      <div class="rs" id="ro-s"></div>
+    </div>
+    <div class="status" id="status">
+      <div class="pulse"></div>
+      <div class="big" id="st-big">Connecting to race feed…</div>
+      <div class="sub2" id="st-sub">Pulling the regatta setup from RaceSense.</div>
+    </div>
+    <div class="hint" id="hint" style="opacity:0">Tap a boat to follow · drag to pan · pinch to zoom</div>
+  </div>
+  <div class="bar">
+    <button class="playbtn" id="playBtn" aria-label="Play">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7z"/></svg>
+    </button>
+    <div class="scrub">
+      <div class="track">
+        <input type="range" id="seek" min="0" max="1000" value="1000" step="1">
+        <div class="startflag" id="startflag"></div>
+      </div>
+      <div class="ticks"><span id="t-cur">–</span><span id="t-mid"></span><span id="t-end">now</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px;flex:0 0 auto">
+      <select class="viewsel" id="labels" aria-label="Boat labels">
+        <option value="num">SAIL NUMBERS</option>
+        <option value="name">SKIPPER NAMES</option>
+        <option value="none">NO LABELS</option>
+      </select>
+      <div class="seg" id="spread" role="group" aria-label="Boat placement">
+        <button data-v="1" class="on">SPREAD</button><button data-v="0">EXACT</button>
+      </div>
+    </div>
+    <button class="livebtn on" id="liveBtn">● LIVE</button>
+  </div>
+</div>
+<script>
+/* ================= CONFIG ================= */
+const REGATTA_ID='cOwE4vej0GntZwctsVjL';
+const FB_KEY='AIzaSyDoQfjoAtx9g3sS7MzKUM0gGwW8tREKxwk';
+const TELE='https://teleapi.regatta.app/telemetry/event/'+REGATTA_ID;
+const DIVISION='MC_Scow';
+const POLL_MS=3000;           // telemetry poll
+const DOC_POLL_MS=30000;      // regatta doc poll (new races / finishes)
+const LIVE_LAG=4000;          // render this far behind wall clock for smoothness
+let NAMES={};
+
+/* ================= STATE ================= */
+let races=[];            // [{num, stage, startMs, finishes:[{sail,pos,ms}]}]
+let activeIdx=-1;        // index into races being viewed
+let followLive=true;     // auto-switch to newest active race
+let authToken=null;
+
+const boats=new Map();   // sail -> {samples:[[t,lat,lon,hdg,sog]], maxAlong:0, everUp:false}
+const markPos=new Map(); // sn -> sorted [[ts,lat,lon], ...]
+let curT=0;   // time currently being rendered
+let markRoles={};        // sn -> role title ('Start','WW','WWOS','Gate','Finish')
+let lastTs=0;            // max telemetry ts seen
+let lastRxWall=0;        // wall time of last successful poll with data
+let cursor=null;         // ms being rendered; null => live edge
+let sel=null;
+let winStart=0;          // scrub window start (gun-3min)
+let lastErr=null, docOK=false, teleOK=false;
+let boatScale=1;
+let overallMode=false;
+let replaying=false, replaySpeed=8, lastFrameWall=0;
+let declutter=true;
+let labelMode='num'; // num | name | none
+try{const lm=localStorage.getItem('labelMode'); if(lm)labelMode=lm;}catch(e){}
+try{const dv=localStorage.getItem('declutter'); if(dv!==null) declutter=dv==='1';}catch(e){}
+try{const v=localStorage.getItem('boatScale');if(v)boatScale=Math.min(2.2,Math.max(0.6,parseFloat(v)));}catch(e){}
+
+/* ================= HELPERS ================= */
+const $=id=>document.getElementById(id);
+function fmtRel(ms,gun){
+  const rel=(ms-gun)/1000, sign=rel<0?'-':'';
+  const a=Math.abs(rel), m=Math.floor(a/60), s=Math.floor(a%60);
+  return sign+m+':'+String(s).padStart(2,'0');
+}
+function hex2sn(h){ return h&&h.length>=4 ? parseInt(h.slice(-4),16) : null; }
+
+/* ================= DATA: Firestore regatta doc ================= */
+async function auth(){
+  if(authToken) return authToken;
+  const r=await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FB_KEY}`,
+    {method:'POST',headers:{'Content-Type':'application/json'},body:'{"returnSecureToken":true}'});
+  const j=await r.json(); authToken=j.idToken; 
+  setTimeout(()=>{authToken=null;}, 50*60*1000); // refresh before 1h expiry
+  return authToken;
+}
+function unwrap(v){
+  const k=Object.keys(v)[0], val=v[k];
+  if(k==='mapValue'){const o={};for(const kk in (val.fields||{}))o[kk]=unwrap(val.fields[kk]);return o;}
+  if(k==='arrayValue')return (val.values||[]).map(unwrap);
+  if(k==='integerValue')return parseInt(val);
+  if(k==='doubleValue')return val;
+  if(k==='booleanValue')return val;
+  if(k==='nullValue')return null;
+  return val;
+}
+async function pollDoc(){
+  try{
+    const tok=await auth();
+    const r=await fetch(`https://firestore.googleapis.com/v1/projects/vakaros-racesense/databases/(default)/documents/regattas/${REGATTA_ID}?key=${FB_KEY}`,
+      {headers:{Authorization:'Bearer '+tok}});
+    if(!r.ok){ if(r.status===401||r.status===403){authToken=null;} return; }
+    const j=await r.json();
+    const o={}; for(const k in j.fields) o[k]=unwrap(j.fields[k]);
+    const div=(o.divisions||[])[0]; if(!div)return;
+    // marks role map from course deviceRoles
+    const course=(div.courses||[])[0];
+    if(course){
+      const mr={};
+      for(const a of (course.achievements||[]))
+        for(const dr of (a.deviceRoles||[])){
+          const sn=hex2sn(dr.sn); if(sn!=null){
+            // prefer Start over Finish label for same device (same line)
+            if(!(sn in mr) || ['Start','WW','WWOS','1','1a','Gate'].includes(a.title)) mr[sn]=a.title;
+          }
+        }
+      markRoles=mr;
+    }
+    for(const p of (div.participants||[])){
+      if(p.sailNumber&&p.boatName&&/[A-Za-z]{2}/.test(p.boatName)) NAMES[p.sailNumber]=p.boatName;
+    }
+    const newRaces=(div.races||[]).map(r=>{
+      const st=(r.starts||[])[0];
+      return {
+        num:r.raceNumber, stage:r.currentStage,
+        startMs: st&&st.startTime ? Date.parse(st.startTime) : null,
+        finishes:(r.finishes||[]).map((f,i)=>({sail:f.sailNumber,pos:i+1,ms:Date.parse(f.finishingTime)}))
+      };
+    });
+    const hadNew = newRaces.length>races.length;
+    races=newRaces;
+    // auto-follow: pick active race, else latest
+    if(followLive){
+      let idx=races.findIndex(r=>['inProgress','starting','preStart','finishing'].includes(r.stage));
+      if(idx<0) idx=races.length-1;
+      if(idx!==activeIdx){ switchRace(idx); }
+    }
+    renderRaceSel();
+    docOK=true;
+  }catch(e){ lastErr='regatta lookup: '+(e.message||e); }
+}
+
+/* ================= DATA: telemetry poll ================= */
+function raceEnd(r){
+  if(r&&r.stage==='finished'&&r.finishes&&r.finishes.length)
+    return Math.max(...r.finishes.map(f=>f.ms))+45000;
+  return null;
+}
+let firstLoad=true;
+async function pollTele(){
+  try{
+    const now=Date.now();
+    const r=races[activeIdx];
+    const end=raceEnd(r);
+    if(end&&lastTs>=end) return; // finished race fully loaded
+    let after;
+    if(firstLoad){
+      after=(r&&r.startMs? r.startMs-240000 : now-720000);
+    } else after=lastTs;
+    const before=end? end : now+60000;
+    const url=`${TELE}?after=${after}&before=${before}&limit=100000&division=${DIVISION}`;
+    const res=await fetch(url); if(!res.ok)return;
+    const d=await res.json();
+    if(!d.Rows||!d.Fields){ if(firstLoad){firstLoad=false;} return; }
+    const F={}; d.Fields.forEach((f,i)=>F[f]=i);
+    let added=0;
+    for(const row of d.Rows){
+      const t=row[F.ts]; if(t<=lastTs&&!firstLoad) continue;
+      const role=row[F.role];
+      if(role==='mark'){
+        let mk=markPos.get(row[F.sn]); if(!mk){mk=[];markPos.set(row[F.sn],mk);}
+        mk.push([t,row[F.latitude],row[F.longitude]]);
+      }
+      else if(role==='competitor'&&row[F.sail_number]){
+        const s=row[F.sail_number];
+        let b=boats.get(s); if(!b){b={samples:[],everUp:false};boats.set(s,b);}
+        b.samples.push([t,row[F.latitude],row[F.longitude],row[F.heading],row[F.sog]]);
+        added++;
+      }
+      if(t>lastTs)lastTs=t;
+    }
+    // keep samples sorted (poll pages can interleave on first load)
+    if(firstLoad){ for(const b of boats.values()) b.samples.sort((a,b)=>a[0]-b[0]); }
+    if(added>0) lastRxWall=Date.now();
+    firstLoad=false;
+    projDirty=true;
+    teleOK=true;
+  }catch(e){ lastErr='position feed: '+(e.message||e); }
+}
+
+/* ================= race switching ================= */
+function resetView(){ manualView=false; view={z:1,ox:0,oy:0}; }
+function switchRace(idx){
+  activeIdx=idx; sel=null; overallMode=false; stopReplay();
+  const r=races[idx];
+  boats.clear(); lastTs=0; firstLoad=true; cursor=null; resetView();
+  winStart = r&&r.startMs ? r.startMs-180000 : Date.now()-600000;
+  $('raceTitle').textContent = r? `Race ${r.num} · ${r.stage==='finished'?'Result':'Live'}`:'—';
+  pollTele();
+  renderRaceSel();
+}
+function renderRaceSel(){
+  const sel=$('raceSel');
+  const opts=races.map((r,i)=>`<option value="${i}" ${(!overallMode&&i===activeIdx)?'selected':''}>RACE ${r.num}${r.stage==='finished'?' ✓':' ●'}</option>`);
+  const done=races.filter(r=>(r.finishes||[]).length).length;
+  if(done>0) opts.push(`<option value="overall" ${overallMode?'selected':''}>OVERALL (${done} race${done>1?'s':''})</option>`);
+  sel.innerHTML=opts.join('');
+}
+$('raceSel').addEventListener('change',e=>{
+  followLive=false; $('liveBtn').classList.remove('on');
+  if(e.target.value==='overall'){ overallMode=true; stopReplay(); renderRaceSel(); return; }
+  overallMode=false;
+  switchRace(+e.target.value);
+});
+$('liveBtn').addEventListener('click',()=>{
+  followLive=true; cursor=null;
+  $('liveBtn').classList.add('on');
+  pollDoc();
+});
+
+/* ================= PROJECTION ================= */
+const cvs=$('c'), ctx=cvs.getContext('2d');
+const R=6371000,D2R=Math.PI/180;
+let lat0=42.60,lon0=-88.60;
+function toM(lat,lon){ return [(lon-lon0)*D2R*R*Math.cos(lat0*D2R),(lat-lat0)*D2R*R]; }
+let windAng=0, rcx=0, rcy=0, fitScale=1, projDirty=true;
+let view={z:1,ox:0,oy:0}, W=0,H=0, DPR=Math.min(devicePixelRatio||1,2.5);
+let manualView=false;
+let smooth={s:null,cx:null,cy:null};
+
+function markAt(sn,t){
+  const mk=markPos.get(+sn); if(!mk||!mk.length)return null;
+  t=t||curT||mk[mk.length-1][0];
+  // marks get lifted and moved once racing ends — never show pickup positions
+  const r=races[activeIdx];
+  if(r){
+    if(r.startMs) t=Math.max(t, r.startMs-120000);
+    const fin=(r.finishes||[]);
+    if(fin.length){ const first=Math.min(...fin.map(f=>f.ms)); t=Math.min(t, first); }
+  }
+  if(t<=mk[0][0]) return [mk[0][1],mk[0][2]];
+  if(t>=mk[mk.length-1][0]) return [mk[mk.length-1][1],mk[mk.length-1][2]];
+  let lo=0,hi=mk.length-1;
+  while(hi-lo>1){const m=(lo+hi)>>1; if(mk[m][0]<=t)lo=m;else hi=m;}
+  const a=mk[lo],b=mk[hi];
+  const f=(b[0]-a[0])?(t-a[0])/(b[0]-a[0]):0;
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f];
+}
+function markBySn(role){
+  for(const sn in markRoles){ if(markRoles[sn]===role && markPos.has(+sn)){
+    const p=markAt(sn); if(p)return p;
+  }}
+  return null;
+}
+function lineMarks(){
+  // start/finish devices: roles 'Start' or 'Finish' — two distinct sns
+  const sns=Object.keys(markRoles).filter(sn=>['Start','Finish'].includes(markRoles[sn])&&markPos.has(+sn));
+  const uniq=[...new Set(sns)].slice(0,2);
+  if(uniq.length===2){
+    // the committee boat repositions to set the finish, so freeze the line at
+    // start-sequence geometry rather than drawing a line between drifting devices
+    const r=races[activeIdx];
+    const lt = (r&&r.startMs) ? r.startMs+30000 : curT;
+    const a=markAt(uniq[0],lt), b=markAt(uniq[1],lt);
+    if(a&&b) return [a,b];
+  }
+  return null;
+}
+function computeProj(tNow){
+  curT=tNow;
+  const pts=[];
+  const lm=lineMarks(); if(lm){pts.push(toM(...lm[0]),toM(...lm[1]));}
+  const ww=markBySn('WW')||markBySn('1'); if(ww)pts.push(toM(...ww));
+  const wo=markBySn('WWOS')||markBySn('1a'); if(wo)pts.push(toM(...wo));
+  for(const [s,b] of boats){ const p=sampleAt(b,tNow); if(p)pts.push(toM(p[1],p[2])); }
+  if(pts.length<2)return;
+  // wind axis
+  if(lm&&ww){
+    const a=toM(...lm[0]),b2=toM(...lm[1]),w=toM(...ww);
+    const sm=[(a[0]+b2[0])/2,(a[1]+b2[1])/2];
+    windAng=Math.atan2(w[0]-sm[0],w[1]-sm[1]);
+  }
+  const c=Math.cos(windAng),s2=Math.sin(windAng);
+  let mnx=1e9,mxx=-1e9,mny=1e9,mxy=-1e9;
+  for(const p of pts){ const x=p[0]*c-p[1]*s2, y=p[0]*s2+p[1]*c;
+    if(x<mnx)mnx=x; if(x>mxx)mxx=x; if(y<mny)mny=y; if(y>mxy)mxy=y; }
+  const pad=60, w=(mxx-mnx)+pad*2, h=(mxy-mny)+pad*2;
+  const targS=Math.min(W/w,H/h)*0.94, targX=(mnx+mxx)/2, targY=(mny+mxy)/2;
+  if(smooth.s==null){smooth={s:targS,cx:targX,cy:targY};}
+  else if(!manualView){ const k=0.06; smooth.s+=(targS-smooth.s)*k; smooth.cx+=(targX-smooth.cx)*k; smooth.cy+=(targY-smooth.cy)*k; }
+  fitScale=smooth.s; rcx=smooth.cx; rcy=smooth.cy;
+}
+function W2S(lat,lon){
+  const p=toM(lat,lon);
+  const c=Math.cos(windAng),s2=Math.sin(windAng);
+  const x=p[0]*c-p[1]*s2, y=p[0]*s2+p[1]*c;
+  const sc=fitScale*view.z;
+  return [W/2+(x-rcx)*sc+view.ox, H/2-(y-rcy)*sc+view.oy];
+}
+
+/* ================= sampling ================= */
+function sampleAt(b,t){
+  const s=b.samples; if(!s.length)return null;
+  if(t<=s[0][0]) return (s[0][0]-t<30000)?s[0]:null;
+  if(t>=s[s.length-1][0]) return (t-s[s.length-1][0]<90000)?s[s.length-1]:null;
+  let lo=0,hi=s.length-1;
+  while(hi-lo>1){const m=(lo+hi)>>1; if(s[m][0]<=t)lo=m;else hi=m;}
+  const a=s[lo],c=s[hi];
+  if(c[0]-a[0]>12000) return (t-a[0]<c[0]-t)?a:c;
+  const f=(t-a[0])/(c[0]-a[0]);
+  const dh=((c[3]-a[3]+540)%360)-180;
+  return [t,a[1]+(c[1]-a[1])*f,a[2]+(c[2]-a[2])*f,(a[3]+dh*f+360)%360,a[4]+(c[4]-a[4])*f];
+}
+
+/* ================= ranking ================= */
+function courseAxis(){
+  const lm=lineMarks(), ww=markBySn('WW')||markBySn('1');
+  if(!lm||!ww)return null;
+  const a=toM(...lm[0]),b=toM(...lm[1]),w=toM(...ww);
+  const sm=[(a[0]+b[0])/2,(a[1]+b[1])/2];
+  const L=Math.hypot(w[0]-sm[0],w[1]-sm[1]);
+  return {sm,ax:(w[0]-sm[0])/L,ay:(w[1]-sm[1])/L,L};
+}
+function computeOrder(t){
+  const ca=courseAxis(); const r=races[activeIdx]||{};
+  const finBy={}; (r.finishes||[]).forEach(f=>finBy[f.sail]=f);
+  const arr=[];
+  for(const [s,b] of boats){
+    const p=sampleAt(b,t); if(!p)continue;
+    let prog=0;
+    if(ca){
+      const m=toM(p[1],p[2]);
+      const a=(m[0]-ca.sm[0])*ca.ax+(m[1]-ca.sm[1])*ca.ay;
+      if(a>=ca.L*0.96)b.everUp=true;
+      prog=b.everUp&&a<ca.L*0.9 ? ca.L+(ca.L-a) : a;
+    }
+    const f=finBy[s];
+    const finished=f&&t>=f.ms;
+    arr.push({sail:s,prog,finished,fpos:f?f.pos:999,sog:p[4],hdg:p[3]});
+  }
+  // include official finishers whose tracker stopped reporting after they crossed
+  const seen=new Set(arr.map(a=>a.sail));
+  for(const f of (r.finishes||[])){
+    if(seen.has(f.sail))continue;
+    if(t>=f.ms) arr.push({sail:f.sail,prog:0,finished:true,fpos:f.pos,sog:0,hdg:0,offair:true});
+  }
+  arr.sort((x,y)=>{
+    if(x.finished&&y.finished)return x.fpos-y.fpos;
+    if(x.finished)return -1; if(y.finished)return 1;
+    return y.prog-x.prog;
+  });
+  return arr;
+}
+
+/* ================= drawing ================= */
+function shortSail(s){return String(s).replace(/^USA\s*/,'');}
+function boatColor(s){ let h=0; for(const c of s)h=(h*31+c.charCodeAt(0))%360; return `hsl(${h} 55% 62%)`; }
+function label(x,y,text,color){
+  ctx.font='700 10px "Saira Condensed",sans-serif';
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  const w=ctx.measureText(text).width+8;
+  ctx.fillStyle='rgba(11,42,58,.85)';ctx.beginPath();ctx.roundRect(x-w/2,y-8,w,15,4);ctx.fill();
+  ctx.fillStyle=color;ctx.fillText(text,x,y);
+}
+function drawMarkPt(p,color,text,boat){
+  ctx.fillStyle=color;ctx.beginPath();
+  if(boat){ctx.roundRect(p[0]-9,p[1]-6,18,12,3);ctx.fill();}
+  else{ctx.moveTo(p[0],p[1]-8);ctx.lineTo(p[0]+7,p[1]+6);ctx.lineTo(p[0]-7,p[1]+6);ctx.closePath();ctx.fill();}
+  label(p[0],p[1]+(boat?18:20),text,color);
+}
+function drawBoat(p,hdg,sailNo,isLead,isSel,col,zoomed){
+  const ang=(hdg||0)*Math.PI/180+windAng*0; // heading is true; rotate into view
+  const a2=ang - windAng; // account for course rotation
+  const size=((isSel||isLead)?11:9)*boatScale;
+  ctx.save();ctx.translate(p[0],p[1]);ctx.rotate(a2);
+  ctx.beginPath();
+  ctx.moveTo(0,-size*1.5);
+  ctx.quadraticCurveTo(size,size*0.4,0,size);
+  ctx.quadraticCurveTo(-size,size*0.4,0,-size*1.5);
+  ctx.closePath();
+  ctx.fillStyle=isLead?'#F2C14E':col; ctx.fill();
+  ctx.lineWidth=1.5; ctx.strokeStyle='rgba(11,42,58,.85)'; ctx.stroke();
+  if(isSel){ctx.lineWidth=2.5;ctx.strokeStyle='#6FD3C6';ctx.stroke();}
+  else if(isLead){ctx.lineWidth=2;ctx.strokeStyle='#fff';ctx.stroke();}
+  ctx.restore();
+  const showLbl = (labelMode!=='none') || isSel;
+  if(showLbl){
+    const nm=NAMES[sailNo]||'';
+    const useName = labelMode==='name' && nm;
+    ctx.font=useName
+      ? '600 '+Math.round(11*Math.min(boatScale,1.3))+'px Inter,system-ui,sans-serif'
+      : '700 '+Math.round(11*Math.min(boatScale,1.4))+'px "Saira Condensed",sans-serif';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    const disp = useName ? nm.split(' ').slice(-1)[0] : shortSail(sailNo);
+    const w=ctx.measureText(disp).width+7;
+    ctx.fillStyle=isLead?'rgba(242,193,78,.95)':(isSel?'rgba(111,211,198,.95)':'rgba(11,42,58,.8)');
+    ctx.beginPath();ctx.roundRect(p[0]-w/2,p[1]-size-16,w,14,4);ctx.fill();
+    ctx.fillStyle=(isLead||isSel)?'#0B2A3A':'#F4F6F4';
+    ctx.fillText(disp,p[0],p[1]-size-9);
+    if(isSel && labelMode!=='name'){
+      const who=NAMES[sailNo]||'';
+      if(who){
+        ctx.font='700 12px Inter,system-ui,sans-serif';
+        const nw=ctx.measureText(who).width+12;
+        ctx.fillStyle='#6FD3C6';
+        ctx.beginPath();ctx.roundRect(p[0]-nw/2,p[1]-size-34,nw,17,5);ctx.fill();
+        ctx.fillStyle='#0B2A3A';
+        ctx.textBaseline='middle';
+        ctx.fillText(who,p[0],p[1]-size-25);
+      }
+    }
+  }
+}
+let lastDraws=[];
+let lastRowsHTML='';
+function draw(t){
+  curT=t;
+  ctx.clearRect(0,0,W,H);
+  computeProj(t);
+  // grid
+  const gs=fitScale*view.z*50;
+  if(gs>18){ctx.strokeStyle='rgba(27,65,87,.5)';ctx.lineWidth=1;ctx.globalAlpha=.35;ctx.beginPath();
+    for(let x=((view.ox%gs)+gs)%gs;x<W;x+=gs){ctx.moveTo(x,0);ctx.lineTo(x,H);}
+    for(let y=((view.oy%gs)+gs)%gs;y<H;y+=gs){ctx.moveTo(0,y);ctx.lineTo(W,y);}
+    ctx.stroke();ctx.globalAlpha=1;}
+  // line + marks
+  const lm=lineMarks();
+  if(lm){
+    const p1=W2S(...lm[0]),p2=W2S(...lm[1]);
+    ctx.strokeStyle='rgba(226,75,52,.9)';ctx.lineWidth=3;ctx.setLineDash([2,5]);
+    ctx.beginPath();ctx.moveTo(p1[0],p1[1]);ctx.lineTo(p2[0],p2[1]);ctx.stroke();ctx.setLineDash([]);
+    drawMarkPt(p1,'#E24B34','PIN',false); drawMarkPt(p2,'#E24B34','RC',true);
+    label((p1[0]+p2[0])/2,(p1[1]+p2[1])/2-14,'START','rgba(226,75,52,1)');
+  }
+  const ww=markBySn('WW')||markBySn('1'); if(ww)drawMarkPt(W2S(...ww),'#F0862C','1',false);
+  const wo=markBySn('WWOS')||markBySn('1a'); if(wo)drawMarkPt(W2S(...wo),'#F0862C','1a',false);
+  for(const sn in markRoles){ if(markRoles[sn]==='Gate'&&markPos.has(+sn)){ const gp=markAt(sn); if(gp) drawMarkPt(W2S(...gp),'#F0862C','gate',false); } }
+  if(lm&&ww){
+    const p1=W2S(...lm[0]),p2=W2S(...lm[1]),pw=W2S(...ww);
+    ctx.strokeStyle='rgba(111,211,198,.25)';ctx.lineWidth=1.5;ctx.setLineDash([6,6]);
+    ctx.beginPath();ctx.moveTo((p1[0]+p2[0])/2,(p1[1]+p2[1])/2);ctx.lineTo(pw[0],pw[1]);ctx.stroke();ctx.setLineDash([]);
+  }
+  // trails (last 45s) for selected boat
+  if(sel&&boats.has(sel)){
+    const b=boats.get(sel); ctx.strokeStyle='rgba(111,211,198,.5)';ctx.lineWidth=2;ctx.beginPath();
+    let started=false;
+    for(const smp of b.samples){ if(smp[0]<t-45000||smp[0]>t)continue;
+      const p=W2S(smp[1],smp[2]); if(!started){ctx.moveTo(p[0],p[1]);started=true;}else ctx.lineTo(p[0],p[1]); }
+    ctx.stroke();
+  }
+  // boats
+  const order=computeOrder(t);
+  const leadSail=order.length&&!order[0].finished?order[0].sail:(order.length?order[0].sail:null);
+  const zoomed=fitScale*view.z>0.9;
+  const draws=[];
+  for(const [s,b] of boats){
+    const p=sampleAt(b,t); if(!p)continue;
+    const stale=b.samples.length?Math.max(0,t-b.samples[b.samples.length-1][0]):0;
+    draws.push({s,p,stale});
+  }
+  draws.sort((a,b)=>((a.s===sel?2:0)+(a.s===leadSail?1:0))-((b.s===sel?2:0)+(b.s===leadSail?1:0)));
+  // screen positions
+  for(const d of draws){ d.sp=W2S(d.p[1],d.p[2]); d.tp=[d.sp[0],d.sp[1]]; }
+  if(declutter&&draws.length>1){
+    const rad=((11)*boatScale)*1.55;      // desired clear radius
+    const minD=rad*2, maxPush=rad*3.2;    // cap displacement so positions stay honest
+    for(let iter=0;iter<12;iter++){
+      let moved=false;
+      for(let i=0;i<draws.length;i++){
+        for(let j=i+1;j<draws.length;j++){
+          const a=draws[i], b=draws[j];
+          let dx=b.tp[0]-a.tp[0], dy=b.tp[1]-a.tp[1];
+          let dist=Math.hypot(dx,dy);
+          if(dist>=minD) continue;
+          if(dist<0.001){ dx=(Math.random()-0.5); dy=(Math.random()-0.5); dist=Math.hypot(dx,dy)||1; }
+          const push=(minD-dist)/2;
+          const ux=dx/dist, uy=dy/dist;
+          a.tp[0]-=ux*push; a.tp[1]-=uy*push;
+          b.tp[0]+=ux*push; b.tp[1]+=uy*push;
+          moved=true;
+        }
+      }
+      if(!moved) break;
+    }
+    // clamp displacement + draw leader line back to true position
+    for(const d of draws){
+      let dx=d.tp[0]-d.sp[0], dy=d.tp[1]-d.sp[1];
+      const m=Math.hypot(dx,dy);
+      if(m>maxPush){ d.tp[0]=d.sp[0]+dx/m*maxPush; d.tp[1]=d.sp[1]+dy/m*maxPush; }
+    }
+    ctx.strokeStyle='rgba(127,154,172,.35)'; ctx.lineWidth=1;
+    ctx.beginPath();
+    for(const d of draws){
+      if(Math.hypot(d.tp[0]-d.sp[0],d.tp[1]-d.sp[1])>3){
+        ctx.moveTo(d.sp[0],d.sp[1]); ctx.lineTo(d.tp[0],d.tp[1]);
+      }
+    }
+    ctx.stroke();
+    // true-position dots
+    ctx.fillStyle='rgba(127,154,172,.5)';
+    for(const d of draws){
+      if(Math.hypot(d.tp[0]-d.sp[0],d.tp[1]-d.sp[1])>3){
+        ctx.beginPath();ctx.arc(d.sp[0],d.sp[1],1.6,0,Math.PI*2);ctx.fill();
+      }
+    }
+  }
+  for(const d of draws){
+    const sp=d.tp;
+    if(sp[0]<-40||sp[0]>W+40||sp[1]<-40||sp[1]>H+40)continue;
+    if(d.stale>15000) ctx.globalAlpha=0.55;
+    drawBoat(sp,d.p[3],d.s,d.s===leadSail,d.s===sel,boatColor(d.s),zoomed);
+    ctx.globalAlpha=1;
+  }
+  lastDraws=draws;
+  return order;
+}
+
+/* ================= overall standings ================= */
+function overallStandings(){
+  const scored=races.filter(r=>(r.finishes||[]).length);
+  const fleet=Math.max(1,...scored.map(r=>r.finishes.length));
+  const dnf=fleet+1;
+  const tally={};
+  for(const r of scored){
+    const placed=new Set();
+    for(const f of r.finishes){
+      const s=f.sail;
+      if(!tally[s]) tally[s]={sail:s,pts:0,scores:[],wins:0};
+      tally[s].pts+=f.pos; tally[s].scores.push(f.pos);
+      if(f.pos===1) tally[s].wins++;
+      placed.add(s);
+    }
+    // boats that raced earlier but missed this race take DNF points
+    for(const s in tally){ if(!placed.has(s)){ tally[s].pts+=dnf; tally[s].scores.push(dnf); } }
+  }
+  const arr=Object.values(tally);
+  arr.sort((a,b)=> a.pts-b.pts || b.wins-a.wins || a.sail.localeCompare(b.sail));
+  return {arr,count:scored.length};
+}
+function renderOverall(){
+  const {arr,count}=overallStandings();
+  $('boardTitle').textContent='Overall';
+  $('ostat').textContent=count+' races';
+  const ohtml = arr.length
+    ? arr.map((o,i)=>`<div class="row${o.sail===sel?' sel':''}${i===0?' lead':''}" data-s="${o.sail}">
+        <span class="pos">${i+1}</span>
+        <span class="dot" style="background:${i===0?'#F2C14E':boatColor(o.sail)}"></span>
+        <span class="who"><b>${shortSail(o.sail)}</b> <i>${(NAMES[o.sail]||'').split(' ').slice(-1)[0]||''}</i></span>
+        <span class="pts">${o.pts}</span>
+      </div>`).join('')
+    : '<div style="color:var(--haze);font-size:12px;padding:6px">No finishes scored yet.</div>';
+  if(ohtml!==lastRowsHTML){ $('rows').innerHTML=ohtml; lastRowsHTML=ohtml; }
+}
+
+/* ================= board / readout ================= */
+function renderBoard(order,t){
+  if(overallMode){ renderOverall(); return; }
+  hideScorecard();
+  $('boardTitle').textContent='Running order';
+  const rowsEl=$('rows'); const r=races[activeIdx]||{};
+  let html='';
+  order.forEach((o,i)=>{
+    const nm=NAMES[o.sail]||'';
+    const cls=['row']; if(i===0&&!o.finished)cls.push('lead'); if(o.finished)cls.push('fin'); if(o.sail===sel)cls.push('sel');
+    html+=`<div class="${cls.join(' ')}" data-s="${o.sail}">
+      <span class="pos">${i+1}</span>
+      <span class="dot" style="background:${i===0&&!o.finished?'#F2C14E':boatColor(o.sail)}"></span>
+      <span class="who"><b>${shortSail(o.sail)}</b> <i>${nm?nm.split(' ').slice(-1)[0]:''}</i>${o.finished?' <i>FIN</i>':''}${o.offair?' <i title="tracker off air">·</i>':''}</span>
+    </div>`;
+  });
+  if(html!==lastRowsHTML){ rowsEl.innerHTML=html; lastRowsHTML=html; }
+  if(r.startMs) $('ostat').textContent=fmtRel(t,r.startMs);
+}
+$('rows').addEventListener('click',e=>{
+  const rw=e.target.closest('.row'); if(!rw)return;
+  sel=(sel===rw.dataset.s)?null:rw.dataset.s;
+  if(sel){ centerOn(sel); }
+});
+function centerOn(s){
+  manualView=true;
+  const b=boats.get(s); if(!b)return;
+  const t=cursor??liveEdge();
+  const p=sampleAt(b,t); if(!p)return;
+  const sp=W2S(p[1],p[2]);
+  view.ox += (W/2-sp[0]);
+  view.oy += (H/2-sp[1]);
+}
+$('boardtab').addEventListener('click',()=>$('board').classList.toggle('hid'));
+
+function showScorecard(sail, rowEl){
+  if(!overallMode) return;
+  const card=$('scorecard');
+  const scored=races.filter(r=>(r.finishes||[]).length);
+  const fleet=Math.max(1,...scored.map(r=>r.finishes.length));
+  let total=0, rows='';
+  for(const r of scored){
+    const f=(r.finishes||[]).find(x=>x.sail===sail);
+    const pts=f?f.pos:fleet+1;
+    total+=pts;
+    rows+=`<tr><td>Race ${r.num}</td><td class="r">${f?f.pos:'DNF'}</td></tr>`;
+  }
+  card.innerHTML=`<div class="sc-h">${shortSail(sail)}</div>
+    <div class="sc-n">${NAMES[sail]||''}</div>
+    <table>${rows}<tr class="tot"><td>Total</td><td class="r">${total}</td></tr></table>`;
+  card.classList.add('on');
+  // place to the RIGHT of the board so the list stays readable
+  const stage=cvs.parentElement.getBoundingClientRect();
+  const board=$('board').getBoundingClientRect();
+  const row=rowEl.getBoundingClientRect();
+  const cw=card.offsetWidth||170, ch=card.offsetHeight||120;
+  let left=(board.right-stage.left)+10;
+  if(left+cw>stage.width-8) left=Math.max(8,(board.left-stage.left)-cw-10);
+  let top=(row.top-stage.top)-6;
+  top=Math.min(Math.max(6,top), stage.height-ch-6);
+  card.style.left=left+'px'; card.style.top=top+'px';
+}
+function hideScorecard(){ $('scorecard').classList.remove('on'); }
+$('rows').addEventListener('mouseover',e=>{
+  const rw=e.target.closest('.row'); if(!rw)return;
+  showScorecard(rw.dataset.s, rw);
+});
+$('rows').addEventListener('mouseleave',hideScorecard);
+$('rows').addEventListener('scroll',hideScorecard);
+function updateReadout(order,t){
+  const ro=$('readout');
+  if(!sel||!boats.has(sel)){ro.classList.remove('on');return;}
+  const p=sampleAt(boats.get(sel),t);
+  const pos=order.findIndex(o=>o.sail===sel)+1;
+  ro.classList.add('on');
+  $('ro-n').textContent=shortSail(sel);
+  $('ro-w').textContent=(NAMES[sel]||'')+(pos?` · P${pos}`:'');
+  $('ro-s').textContent=p?`${p[4].toFixed(1)} kn · ${Math.round(p[3])}°`:'—';
+}
+
+/* ================= replay ================= */
+function startReplay(){
+  const r=races[activeIdx]; if(!r||!r.startMs)return;
+  overallMode=false; renderRaceSel();
+  replaying=true; lastFrameWall=performance.now();
+  cursor = r.startMs-20000;             // 20s before the gun
+  $('replayBtn').classList.add('on');
+  paintPlayBtn();
+  $('liveBtn').classList.remove('on');
+}
+function stopReplay(){
+  replaying=false;
+  $('replayBtn').classList.remove('on');
+  paintPlayBtn();
+}
+$('replayBtn').addEventListener('click',()=>{ startReplay(); });   // ⟲ always restarts from the gun
+
+function paintPlayBtn(){
+  $('playBtn').innerHTML = replaying
+    ? '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7z"/></svg>';
+  $('playBtn').setAttribute('aria-label', replaying?'Pause':'Play');
+}
+$('playBtn').addEventListener('click',()=>{
+  if(replaying){ stopReplay(); return; }
+  const r=races[activeIdx]; if(!r||!r.startMs)return;
+  overallMode=false; renderRaceSel();
+  // resume from current scrub point; if we're parked at the live edge, start from the gun
+  if(cursor===null || cursor>=liveEdge()-1000) cursor=r.startMs-20000;
+  replaying=true; lastFrameWall=performance.now();
+  $('liveBtn').classList.remove('on');
+  paintPlayBtn();
+});
+paintPlayBtn();
+
+/* ================= transport ================= */
+const seek=$('seek');
+let scrubbing=false;
+seek.addEventListener('input',()=>{
+  scrubbing=true; if(replaying)stopReplay();
+  const frac=+seek.value/1000;
+  const end=liveEdge();
+  cursor=winStart+(end-winStart)*frac;
+  if(frac>0.995){cursor=null;}
+  $('liveBtn').classList.toggle('on',cursor===null);
+});
+seek.addEventListener('change',()=>{scrubbing=false;});
+function liveEdge(){
+  const r=races[activeIdx];
+  const end=raceEnd(r);
+  if(end) return Math.min(lastTs||end, end);
+  return Math.max(lastTs, Date.now()-LIVE_LAG);
+}
+$('liveBtn').addEventListener('click',()=>{cursor=null;seek.value=1000;overallMode=false;stopReplay();renderRaceSel();});
+function paintSpreadBtn(){
+  for(const b of $('spread').querySelectorAll('button'))
+    b.classList.toggle('on', (b.dataset.v==='1')===declutter);
+}
+$('spread').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  declutter = b.dataset.v==='1';
+  paintSpreadBtn();
+  try{localStorage.setItem('declutter',declutter?'1':'0')}catch(e){}
+});
+paintSpreadBtn();
+
+function paintLabelBtn(){ $('labels').value = labelMode; }
+$('labels').addEventListener('change',e=>{
+  labelMode = e.target.value;
+  try{localStorage.setItem('labelMode',labelMode)}catch(e){}
+});
+paintLabelBtn();
+$('szUp').addEventListener('click',()=>{boatScale=Math.min(2.2,boatScale*1.18);try{localStorage.setItem('boatScale',boatScale)}catch(e){}});
+$('szDn').addEventListener('click',()=>{boatScale=Math.max(0.6,boatScale/1.18);try{localStorage.setItem('boatScale',boatScale)}catch(e){}});
+
+/* ================= pan/zoom/tap ================= */
+let drag=null,pinchD=null,moved=false;const pts=new Map();
+cvs.addEventListener('pointerdown',e=>{cvs.setPointerCapture(e.pointerId);
+  pts.set(e.pointerId,e);
+  drag={x:e.clientX,y:e.clientY,ox:view.ox,oy:view.oy};moved=false;});
+cvs.addEventListener('pointermove',e=>{
+  if(pts.has(e.pointerId))pts.set(e.pointerId,e);
+  if(pts.size===2){const[a,b]=[...pts.values()];
+    const d=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
+    if(pinchD)zoomAt((a.clientX+b.clientX)/2,(a.clientY+b.clientY)/2,d/pinchD);
+    pinchD=d;drag=null;return;}
+  if(!drag)return;
+  const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
+  if(Math.abs(dx)+Math.abs(dy)>4)moved=true;
+  manualView=true; view.ox=drag.ox+dx;view.oy=drag.oy+dy;});
+cvs.addEventListener('pointerup',e=>{
+  pts.delete(e.pointerId); if(pts.size<2)pinchD=null;
+  if(!moved&&drag)tapSelect(e.clientX,e.clientY);
+  drag=null;});
+cvs.addEventListener('dblclick',()=>{resetView();});
+cvs.addEventListener('wheel',e=>{e.preventDefault();zoomAt(e.clientX,e.clientY,Math.exp(-e.deltaY*0.0015));},{passive:false});
+function zoomAt(sx,sy,f){
+  manualView=true;
+  const rect=cvs.getBoundingClientRect();
+  const px=sx-rect.left, py=sy-rect.top;
+  const nz=Math.min(6,Math.max(0.6,view.z*f)), k=nz/view.z;
+  // transform is  screen = C + world*scale*z + offset  (C = W/2 or H/2)
+  // keep the point under the cursor fixed:
+  const cx=W/2, cy=H/2;
+  view.ox = px - cx - (px - cx - view.ox)*k;
+  view.oy = py - cy - (py - cy - view.oy)*k;
+  view.z = nz;
+}
+function tapSelect(sx,sy){
+  const rect=cvs.getBoundingClientRect();const px=sx-rect.left,py=sy-rect.top;
+  let best=null,bd=1e9;
+  for(const d of lastDraws){
+    const q=d.tp||d.sp; if(!q)continue;
+    const dist=Math.hypot(q[0]-px,q[1]-py);
+    if(dist<bd){bd=dist;best=d.s;}
+  }
+  sel=bd<30?(sel===best?null:best):null;
+  $('hint').style.opacity='0';
+}
+
+/* ================= main loop ================= */
+function resize(){
+  const st=cvs.parentElement.getBoundingClientRect();
+  W=st.width;H=st.height;
+  cvs.width=W*DPR;cvs.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize',resize);
+new ResizeObserver(resize).observe(cvs.parentElement);
+
+function tick(){
+  const r=races[activeIdx];
+  if(replaying){
+    const now=performance.now();
+    const dt=Math.min(500, now-lastFrameWall); lastFrameWall=now;
+    cursor = (cursor??liveEdge()) + dt*replaySpeed;
+    const end=liveEdge();
+    if(cursor>=end){ cursor=end; stopReplay(); }
+  }
+  const t=cursor??liveEdge();
+  // status overlay
+  const st=$('status');
+  const hasData=boats.size>0;
+  if(!hasData){
+    st.classList.remove('hid');
+    if(races.length===0){
+      const stuck=(performance.now()>12000)&&!docOK&&!teleOK;
+      $('st-big').textContent=stuck?'Network blocked':'Connecting to race feed…';
+      $('st-sub').textContent=stuck
+        ? 'This viewer can\'t reach the race APIs from here'+(lastErr?' ('+lastErr+')':'')+'. Open this file in Safari or Chrome instead — tap Share → open in browser — and it will connect.'
+        : 'Pulling the regatta setup from RaceSense.';
+    }
+    else if(r&&r.stage!=='finished'&&!lastTs){$('st-big').textContent=`Waiting for Race ${r.num}`;$('st-sub').textContent='RC hasn\'t started broadcasting positions yet. This will light up automatically when boats appear — leave it open.';}
+    else{$('st-big').textContent='No positions yet';$('st-sub').textContent='Auto-checking every few seconds.';}
+  } else st.classList.add('hid');
+  // badge
+  const live=cursor===null && r && r.stage!=='finished';
+  const badge=$('badge');
+  badge.classList.toggle('on',cursor===null&&hasData);
+  badge.classList.toggle('stale',Date.now()-lastRxWall>15000);
+  badge.textContent = r&&r.stage==='finished' ? 'REPLAY' : (Date.now()-lastRxWall>15000?'STALE':'LIVE');
+  // clock
+  if(r&&r.startMs){
+    $('clock').innerHTML=`<small id="stageTxt">${r.stage==='finished'?'final':'vs gun'}</small><b>${fmtRel(t,r.startMs)}</b>`;
+    $('t-cur').textContent=fmtRel(winStart,r.startMs);
+    $('t-end').textContent=cursor===null?'live':fmtRel(t,r.startMs);
+    // start flag on track
+    const end=liveEdge();
+    const frac=(r.startMs-winStart)/Math.max(1,(end-winStart));
+    const tr=document.querySelector('.track');
+    $('startflag').style.left=(Math.min(Math.max(frac,0),1)*(tr.clientWidth-18)+9)+'px';
+  }
+  // keep slider at edge when live
+  if(cursor===null&&!scrubbing)seek.value=1000;
+  if(hasData){
+    const order=draw(t);
+    renderBoard(order,t);
+    updateReadout(order,t);
+    if($('hint').style.opacity==='0'&&!tick.hinted){tick.hinted=true;$('hint').style.opacity='1';setTimeout(()=>$('hint').style.opacity='0',6000);}
+  } else { ctx.clearRect(0,0,W,H); }
+  requestAnimationFrame(tick);
+}
+
+/* ================= boot ================= */
+resize();
+pollDoc().then(()=>{ if(activeIdx<0&&races.length)switchRace(races.length-1); });
+setInterval(pollDoc,DOC_POLL_MS);
+setInterval(pollTele,POLL_MS);
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
