@@ -200,10 +200,32 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 </div>
 <script>
 /* ================= CONFIG ================= */
-const REGATTA_ID='cOwE4vej0GntZwctsVjL';
+// Defaults; overridable via ?regatta=...&division=... The regatta param may
+// also be a full player URL (/watch/<REGATTA_ID>/<Division>), in which case the
+// id and division are extracted from it.
+const DEFAULT_REGATTA_ID='cOwE4vej0GntZwctsVjL';
+const DEFAULT_DIVISION='MC_Scow';
+const {REGATTA_ID,DIVISION}=readConfig();
 const FB_KEY='AIzaSyDoQfjoAtx9g3sS7MzKUM0gGwW8tREKxwk';
 const TELE='https://teleapi.regatta.app/telemetry/event/'+REGATTA_ID;
-const DIVISION='MC_Scow';
+
+function readConfig(){
+  const q=new URLSearchParams(location.search);
+  let regatta=q.get('regatta')||'';
+  let division=q.get('division')||'';
+  // A pasted player URL: .../watch/<REGATTA_ID>/<Division>
+  const m=regatta.match(/\/watch\/([^/?#]+)(?:\/([^/?#]+))?/);
+  if(m){
+    regatta=m[1];
+    if(!division&&m[2])division=decodeURIComponent(m[2]);
+  }
+  // Division spaces become underscores ("MC Scow" -> "MC_Scow").
+  division=division.replace(/ /g,'_');
+  return {
+    REGATTA_ID:regatta||DEFAULT_REGATTA_ID,
+    DIVISION:division||DEFAULT_DIVISION,
+  };
+}
 const POLL_MS=3000;           // telemetry poll
 const DOC_POLL_MS=30000;      // regatta doc poll (new races / finishes)
 const LIVE_LAG=4000;          // render this far behind wall clock for smoothness
