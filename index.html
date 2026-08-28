@@ -250,6 +250,8 @@ let sel=null;
 let winStart=0;          // scrub window start (gun-3min)
 let lastErr=null, docOK=false, teleOK=false;
 let boatScale=1;
+const FAV='2674'; // Matt Wean — always highlighted
+function isFavSail(s){ return String(s).replace(/^USA\s*/,'').trim()===FAV; }
 let overallMode=false;
 let replaying=false, replaySpeed=8, lastFrameWall=0;
 let declutter=true;
@@ -578,19 +580,35 @@ function drawMarkPt(p,color,text,boat){
 function drawBoat(p,hdg,sailNo,isLead,isSel,col,zoomed){
   const ang=(hdg||0)*Math.PI/180+windAng*0; // heading is true; rotate into view
   const a2=ang - windAng; // account for course rotation
-  const size=((isSel||isLead)?11:9)*boatScale;
+  const isFav=isFavSail(sailNo);
+  const size=((isSel||isLead||isFav)?11:9)*boatScale;
   ctx.save();ctx.translate(p[0],p[1]);ctx.rotate(a2);
   ctx.beginPath();
   ctx.moveTo(0,-size*1.5);
   ctx.quadraticCurveTo(size,size*0.4,0,size);
   ctx.quadraticCurveTo(-size,size*0.4,0,-size*1.5);
   ctx.closePath();
-  ctx.fillStyle=isLead?'#F2C14E':col; ctx.fill();
+  ctx.fillStyle=isFav?'#FFFFFF':(isLead?'#F2C14E':col); ctx.fill();
   ctx.lineWidth=1.5; ctx.strokeStyle='rgba(11,42,58,.85)'; ctx.stroke();
-  if(isSel){ctx.lineWidth=2.5;ctx.strokeStyle='#6FD3C6';ctx.stroke();}
+  if(isFav){ctx.lineWidth=2.5;ctx.strokeStyle='#E24B34';ctx.stroke();}
+  else if(isSel){ctx.lineWidth=2.5;ctx.strokeStyle='#6FD3C6';ctx.stroke();}
   else if(isLead){ctx.lineWidth=2;ctx.strokeStyle='#fff';ctx.stroke();}
   ctx.restore();
-  const showLbl = (labelMode!=='none') || isSel;
+  if(isFav){ // pulsing beacon + star so Wean is findable in a 95-boat fleet
+    const pulse=(Date.now()%1400)/1400;
+    ctx.strokeStyle='rgba(242,193,78,'+(0.85*(1-pulse))+')';
+    ctx.lineWidth=3;
+    ctx.beginPath();ctx.arc(p[0],p[1],size*1.6+pulse*16,0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle='rgba(242,193,78,.9)';ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(p[0],p[1],size*1.6,0,Math.PI*2);ctx.stroke();
+    ctx.font='bold '+(17*boatScale)+'px sans-serif';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.strokeStyle='rgba(11,42,58,.9)';ctx.lineWidth=3;
+    ctx.strokeText('\u2605',p[0],p[1]-size-28);
+    ctx.fillStyle='#F2C14E';
+    ctx.fillText('\u2605',p[0],p[1]-size-28);
+  }
+  const showLbl = (labelMode!=='none') || isSel || isFav;
   if(showLbl){
     const nm=NAMES[sailNo]||'';
     const useName = labelMode==='name' && nm;
@@ -600,9 +618,9 @@ function drawBoat(p,hdg,sailNo,isLead,isSel,col,zoomed){
     ctx.textAlign='center';ctx.textBaseline='middle';
     const disp = useName ? surname(nm) : shortSail(sailNo);
     const w=ctx.measureText(disp).width+7;
-    ctx.fillStyle=isLead?'rgba(242,193,78,.95)':(isSel?'rgba(111,211,198,.95)':'rgba(11,42,58,.8)');
+    ctx.fillStyle=isFav?'rgba(255,255,255,.95)':(isLead?'rgba(242,193,78,.95)':(isSel?'rgba(111,211,198,.95)':'rgba(11,42,58,.8)'));
     ctx.beginPath();ctx.roundRect(p[0]-w/2,p[1]-size-16,w,14,4);ctx.fill();
-    ctx.fillStyle=(isLead||isSel)?'#0B2A3A':'#F4F6F4';
+    ctx.fillStyle=(isLead||isSel||isFav)?'#0B2A3A':'#F4F6F4';
     ctx.fillText(disp,p[0],p[1]-size-9);
     if(isSel && labelMode!=='name'){
       const who=NAMES[sailNo]||'';
@@ -665,7 +683,7 @@ function draw(t){
     const stale=b.samples.length?Math.max(0,t-b.samples[b.samples.length-1][0]):0;
     draws.push({s,p,stale});
   }
-  draws.sort((a,b)=>((a.s===sel?2:0)+(a.s===leadSail?1:0))-((b.s===sel?2:0)+(b.s===leadSail?1:0)));
+  draws.sort((a,b)=>((isFavSail(a.s)?4:0)+(a.s===sel?2:0)+(a.s===leadSail?1:0))-((isFavSail(b.s)?4:0)+(b.s===sel?2:0)+(b.s===leadSail?1:0)));
   // screen positions
   for(const d of draws){ d.sp=W2S(d.p[1],d.p[2]); d.tp=[d.sp[0],d.sp[1]]; }
   if(declutter&&draws.length>1){
@@ -749,10 +767,10 @@ function renderOverall(){
   $('boardTitle').textContent='Overall';
   $('ostat').textContent=count+' races';
   const ohtml = arr.length
-    ? arr.map((o,i)=>`<div class="row${o.sail===sel?' sel':''}${i===0?' lead':''}" data-s="${o.sail}">
+    ? arr.map((o,i)=>`<div class="row${o.sail===sel?' sel':''}${i===0?' lead':''}" data-s="${o.sail}" ${isFavSail(o.sail)?'style="background:rgba(255,255,255,.12);outline:1px solid rgba(242,193,78,.7)"':''}>
         <span class="pos">${i+1}</span>
-        <span class="dot" style="background:${i===0?'#F2C14E':boatColor(o.sail)}"></span>
-        <span class="who"><b>${shortSail(o.sail)}</b> <i>${surname(NAMES[o.sail])}</i></span>
+        <span class="dot" style="background:${isFavSail(o.sail)?'#fff':(i===0?'#F2C14E':boatColor(o.sail))}"></span>
+        <span class="who"><b>${isFavSail(o.sail)?'\u2605 ':''}${shortSail(o.sail)}</b> <i>${surname(NAMES[o.sail])}</i></span>
         <span class="pts">${o.pts}</span>
       </div>`).join('')
     : '<div style="color:var(--haze);font-size:12px;padding:6px">No finishes scored yet.</div>';
@@ -768,11 +786,12 @@ function renderBoard(order,t){
   let html='';
   order.forEach((o,i)=>{
     const nm=NAMES[o.sail]||'';
+    const fav=isFavSail(o.sail);
     const cls=['row']; if(i===0&&!o.finished)cls.push('lead'); if(o.finished)cls.push('fin'); if(o.sail===sel)cls.push('sel');
-    html+=`<div class="${cls.join(' ')}" data-s="${o.sail}">
+    html+=`<div class="${cls.join(' ')}" data-s="${o.sail}" ${fav?'style="background:rgba(255,255,255,.12);outline:1px solid rgba(242,193,78,.7)"':''}>
       <span class="pos">${i+1}</span>
-      <span class="dot" style="background:${i===0&&!o.finished?'#F2C14E':boatColor(o.sail)}"></span>
-      <span class="who"><b>${shortSail(o.sail)}</b> <i>${surname(nm)}</i>${o.finished?' <i>FIN</i>':''}${o.offair?' <i title="tracker off air">·</i>':''}</span>
+      <span class="dot" style="background:${fav?'#fff':(i===0&&!o.finished?'#F2C14E':boatColor(o.sail))}"></span>
+      <span class="who"><b>${fav?'\u2605 ':''}${shortSail(o.sail)}</b> <i>${surname(nm)}</i>${o.finished?' <i>FIN</i>':''}${o.offair?' <i title="tracker off air">·</i>':''}</span>
     </div>`;
   });
   if(html!==lastRowsHTML){ rowsEl.innerHTML=html; lastRowsHTML=html; }
@@ -780,8 +799,10 @@ function renderBoard(order,t){
 }
 $('rows').addEventListener('click',e=>{
   const rw=e.target.closest('.row'); if(!rw)return;
+  const was=sel;
   sel=(sel===rw.dataset.s)?null:rw.dataset.s;
-  if(sel){ centerOn(sel); }
+  if(sel){ centerOn(sel); if(overallMode) showScorecard(sel,rw); }
+  else hideScorecard();
 });
 function centerOn(s){
   manualView=true;
@@ -822,6 +843,22 @@ function showScorecard(sail, rowEl){
   card.style.left=left+'px'; card.style.top=top+'px';
 }
 function hideScorecard(){ $('scorecard').classList.remove('on'); }
+// mobile has no mouseleave: any tap outside the card (or a scroll/resize) dismisses it
+document.addEventListener('pointerdown',e=>{
+  const c=$('scorecard');
+  if(!c.classList.contains('on'))return;
+  if(e.target.closest('#scorecard')||e.target.closest('.row'))return;
+  hideScorecard();
+},true);
+document.addEventListener('touchstart',e=>{
+  const c=$('scorecard');
+  if(!c.classList.contains('on'))return;
+  if(e.target.closest('#scorecard')||e.target.closest('.row'))return;
+  hideScorecard();
+},{capture:true,passive:true});
+window.addEventListener('scroll',hideScorecard,true);
+window.addEventListener('resize',hideScorecard);
+document.addEventListener('keydown',e=>{ if(e.key==='Escape')hideScorecard(); });
 $('rows').addEventListener('mouseover',e=>{
   const rw=e.target.closest('.row'); if(!rw)return;
   showScorecard(rw.dataset.s, rw);
