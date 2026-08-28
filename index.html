@@ -133,6 +133,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 .raceSel{flex:0 0 auto;font-family:'Saira Condensed',sans-serif;font-weight:700;font-size:13px;
   background:var(--water-2);color:var(--sail);border:1px solid var(--grid);border-radius:8px;padding:8px 6px}
 @media (max-width:420px){ .board{width:186px} .row{font-size:12px} }
+@media (max-width:640px){ .sizer{display:none} }
 </style>
 </head>
 <body>
@@ -184,6 +185,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
       <div class="ticks"><span id="t-cur">–</span><span id="t-mid"></span><span id="t-end">now</span></div>
     </div>
     <div style="display:flex;flex-direction:column;gap:4px;flex:0 0 auto">
+      <button class="livebtn" id="topBtn" style="padding:5px 8px;font-size:11px;line-height:1;letter-spacing:.06em">TOP 10</button>
       <select class="viewsel" id="labels" aria-label="Boat labels">
         <option value="num">SAIL NUMBERS</option>
         <option value="name">SKIPPER NAMES</option>
@@ -248,6 +250,8 @@ let sel=null;
 let winStart=0;          // scrub window start (gun-3min)
 let lastErr=null, docOK=false, teleOK=false;
 let boatScale=1;
+let topOnly=false;
+try{topOnly=localStorage.getItem('topOnly')==='1';}catch(e){}
 const FAV='2674'; // Matt Wean — always highlighted
 function isFavSail(s){ return String(s).replace(/^USA\s*/,'').trim()===FAV; }
 let overallMode=false;
@@ -445,32 +449,60 @@ function markAt(sn,t){
   const f=(b[0]-a[0])?(t-a[0])/(b[0]-a[0]):0;
   return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f];
 }
+// Role titles differ per event ("WW", "WW Mark", "1", "Offset", "1a", "Gate", "Start").
+// Match by pattern instead of exact string.
+const ROLE_PATTERNS={
+  ww:      /(^|\b)(ww|windward|weather)(\b|$)|^1$/i,
+  offset:  /offset|^1a$/i,
+  gate:    /gate|leeward/i,
+  line:    /start|finish/i
+};
+function snsForRole(kind){
+  const re=ROLE_PATTERNS[kind]; const out=[];
+  for(const sn in markRoles){
+    const title=String(markRoles[sn]||'');
+    if(!markPos.has(+sn)) continue;
+    if(kind==='ww' && ROLE_PATTERNS.offset.test(title)) continue; // offset is not the WW mark
+    if(re.test(title)) out.push(sn);
+  }
+  return out;
+}
+function markByRole(kind){
+  for(const sn of snsForRole(kind)){ const p=markAt(sn); if(p) return p; }
+  return null;
+}
 function markBySn(role){
+  // legacy exact lookup, kept for callers that pass a literal title
   for(const sn in markRoles){ if(markRoles[sn]===role && markPos.has(+sn)){
     const p=markAt(sn); if(p)return p;
   }}
+  const map={'WW':'ww','1':'ww','WWOS':'offset','1a':'offset'};
+  return map[role]?markByRole(map[role]):null;
+}
+// the pair of marks that forms the start/finish line, or the gate if no line is broadcast
+function gatePair(){
+  const g=snsForRole('gate');
+  if(g.length>=2){ const a=markAt(g[0]), b=markAt(g[1]); if(a&&b) return [a,b]; }
   return null;
 }
 function lineMarks(){
-  // start/finish devices: roles 'Start' or 'Finish' — two distinct sns
-  const sns=Object.keys(markRoles).filter(sn=>['Start','Finish'].includes(markRoles[sn])&&markPos.has(+sn));
+  const sns=snsForRole('line');
   const uniq=[...new Set(sns)].slice(0,2);
   if(uniq.length===2){
-    // the committee boat repositions to set the finish, so freeze the line at
-    // start-sequence geometry rather than drawing a line between drifting devices
     const r=races[activeIdx];
-    const lt = (r&&r.startMs) ? r.startMs+30000 : curT;
+    const lt=(r&&r.startMs)?r.startMs+30000:curT;
     const a=markAt(uniq[0],lt), b=markAt(uniq[1],lt);
     if(a&&b) return [a,b];
   }
-  return null;
+  return gatePair();   // many courses only broadcast the gate
 }
+function lineIsGate(){ return snsForRole('line').length<2; }
 function computeProj(tNow){
   curT=tNow;
   const pts=[];
   const lm=lineMarks(); if(lm){pts.push(toM(...lm[0]),toM(...lm[1]));}
-  const ww=markBySn('WW')||markBySn('1'); if(ww)pts.push(toM(...ww));
-  const wo=markBySn('WWOS')||markBySn('1a'); if(wo)pts.push(toM(...wo));
+  const ww=markByRole('ww'); if(ww)pts.push(toM(...ww));
+  const wo=markByRole('offset'); if(wo)pts.push(toM(...wo));
   for(const [s,b] of boats){ const p=sampleAt(b,tNow); if(p)pts.push(toM(p[1],p[2])); }
   if(pts.length<2)return;
   // wind axis
@@ -513,7 +545,7 @@ function sampleAt(b,t){
 
 /* ================= ranking ================= */
 function courseAxis(){
-  const lm=lineMarks(), ww=markBySn('WW')||markBySn('1');
+  const lm=lineMarks(), ww=markByRole('ww');
   if(!lm||!ww)return null;
   const a=toM(...lm[0]),b=toM(...lm[1]),w=toM(...ww);
   const sm=[(a[0]+b[0])/2,(a[1]+b[1])/2];
@@ -652,12 +684,12 @@ function draw(t){
     const p1=W2S(...lm[0]),p2=W2S(...lm[1]);
     ctx.strokeStyle='rgba(226,75,52,.9)';ctx.lineWidth=3;ctx.setLineDash([2,5]);
     ctx.beginPath();ctx.moveTo(p1[0],p1[1]);ctx.lineTo(p2[0],p2[1]);ctx.stroke();ctx.setLineDash([]);
-    drawMarkPt(p1,'#E24B34','PIN',false); drawMarkPt(p2,'#E24B34','RC',true);
-    label((p1[0]+p2[0])/2,(p1[1]+p2[1])/2-14,'START','rgba(226,75,52,1)');
+    drawMarkPt(p1,'#E24B34',lineIsGate()?'gate':'PIN',false); drawMarkPt(p2,'#E24B34',lineIsGate()?'gate':'RC',!lineIsGate());
+    label((p1[0]+p2[0])/2,(p1[1]+p2[1])/2-14,lineIsGate()?'GATE / FINISH':'START','rgba(226,75,52,1)');
   }
-  const ww=markBySn('WW')||markBySn('1'); if(ww)drawMarkPt(W2S(...ww),'#F0862C','1',false);
-  const wo=markBySn('WWOS')||markBySn('1a'); if(wo)drawMarkPt(W2S(...wo),'#F0862C','1a',false);
-  for(const sn in markRoles){ if(markRoles[sn]==='Gate'&&markPos.has(+sn)){ const gp=markAt(sn); if(gp) drawMarkPt(W2S(...gp),'#F0862C','gate',false); } }
+  const ww=markByRole('ww'); if(ww)drawMarkPt(W2S(...ww),'#F0862C','WW',false);
+  const wo=markByRole('offset'); if(wo)drawMarkPt(W2S(...wo),'#F0862C','offset',false);
+  if(!lineIsGate()){ for(const sn of snsForRole('gate')){ const gp=markAt(sn); if(gp) drawMarkPt(W2S(...gp),'#F0862C','gate',false); } }
   if(lm&&ww){
     const p1=W2S(...lm[0]),p2=W2S(...lm[1]),pw=W2S(...ww);
     ctx.strokeStyle='rgba(111,211,198,.25)';ctx.lineWidth=1.5;ctx.setLineDash([6,6]);
@@ -764,8 +796,9 @@ function renderOverall(){
   const {arr,count}=overallStandings();
   $('boardTitle').textContent='Overall';
   $('ostat').textContent=count+' races';
-  const ohtml = arr.length
-    ? arr.map((o,i)=>`<div class="row${o.sail===sel?' sel':''}${i===0?' lead':''}" data-s="${o.sail}" ${isFavSail(o.sail)?'style="background:rgba(255,255,255,.12);outline:1px solid rgba(242,193,78,.7)"':''}>
+  const shownArr = topOnly ? arr.slice(0,10) : arr;
+  const ohtml = shownArr.length
+    ? shownArr.map((o,i)=>`<div class="row${o.sail===sel?' sel':''}${i===0?' lead':''}" data-s="${o.sail}" ${isFavSail(o.sail)?'style="background:rgba(255,255,255,.12);outline:1px solid rgba(242,193,78,.7)"':''}>
         <span class="pos">${i+1}</span>
         <span class="dot" style="background:${isFavSail(o.sail)?'#fff':(i===0?'#F2C14E':boatColor(o.sail))}"></span>
         <span class="who"><b>${isFavSail(o.sail)?'\u2605 ':''}${shortSail(o.sail)}</b> <i>${surname(NAMES[o.sail])}</i></span>
@@ -782,7 +815,8 @@ function renderBoard(order,t){
   $('boardTitle').textContent='Running order';
   const rowsEl=$('rows'); const r=races[activeIdx]||{};
   let html='';
-  order.forEach((o,i)=>{
+  const shown = topOnly ? order.slice(0,10) : order;
+  shown.forEach((o,i)=>{
     const nm=NAMES[o.sail]||'';
     const fav=isFavSail(o.sail);
     const cls=['row']; if(i===0&&!o.finished)cls.push('lead'); if(o.finished)cls.push('fin'); if(o.sail===sel)cls.push('sel');
@@ -948,6 +982,17 @@ $('spread').addEventListener('click',e=>{
 paintSpreadBtn();
 
 function paintLabelBtn(){ $('labels').value = labelMode; }
+function paintTopBtn(){
+  const el=$('topBtn');
+  el.textContent = topOnly?'TOP 10':'ALL BOATS';
+  el.classList.toggle('on',topOnly);
+}
+$('topBtn').addEventListener('click',()=>{
+  topOnly=!topOnly;
+  paintTopBtn(); lastRowsHTML='';
+  try{localStorage.setItem('topOnly',topOnly?'1':'0');}catch(e){}
+});
+paintTopBtn();
 $('labels').addEventListener('change',e=>{
   labelMode = e.target.value;
   try{localStorage.setItem('labelMode',labelMode)}catch(e){}
@@ -1065,6 +1110,7 @@ function tick(){
 
 /* ================= boot ================= */
 resize();
+replaying=false; cursor=null;
 pollDoc().then(()=>{ if(activeIdx<0&&races.length)switchRace(races.length-1); });
 setInterval(pollDoc,DOC_POLL_MS);
 setInterval(pollTele,POLL_MS);
