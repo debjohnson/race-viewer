@@ -45,7 +45,7 @@ header{padding:10px 14px 8px;display:flex;align-items:center;justify-content:spa
 .stage{flex:1;position:relative;min-height:0}
 canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
 
-.board{position:absolute;top:10px;left:10px;width:186px;max-height:calc(100% - 20px);
+.board{position:absolute;top:10px;left:10px;width:212px;max-height:calc(100% - 20px);
   background:rgba(10,34,48,.82);backdrop-filter:blur(8px);border:1px solid var(--grid);
   border-radius:12px;padding:8px 6px 8px 8px;overflow:hidden;display:flex;flex-direction:column;
   transition:transform .2s}
@@ -132,7 +132,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 .seg button.on{background:var(--live);color:#04220f}
 .raceSel{flex:0 0 auto;font-family:'Saira Condensed',sans-serif;font-weight:700;font-size:13px;
   background:var(--water-2);color:var(--sail);border:1px solid var(--grid);border-radius:8px;padding:8px 6px}
-@media (max-width:420px){ .board{width:152px} .row{font-size:12px} }
+@media (max-width:420px){ .board{width:186px} .row{font-size:12px} }
 </style>
 </head>
 <body>
@@ -152,11 +152,9 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
   </header>
   <div class="stage">
     <canvas id="c"></canvas>
-    <div class="boardtab" id="boardtab">≡</div>
     <div class="board" id="board">
       <div class="boardhead">
         <select class="raceSel" id="raceSel"></select>
-        <button class="replaybtn" id="replayBtn" title="Replay this race from the start">⟲</button>
       </div>
       <h2><span id="boardTitle">Running order</span> <span id="ostat"></span></h2>
       <div class="rows" id="rows"></div>
@@ -813,7 +811,7 @@ function centerOn(s){
   view.ox += (W/2-sp[0]);
   view.oy += (H/2-sp[1]);
 }
-$('boardtab').addEventListener('click',()=>$('board').classList.toggle('hid'));
+// board toggle removed with the hamburger tab
 
 function showScorecard(sail, rowEl){
   if(!overallMode) return;
@@ -882,16 +880,16 @@ function startReplay(){
   overallMode=false; renderRaceSel();
   replaying=true; lastFrameWall=performance.now();
   cursor = r.startMs-20000;             // 20s before the gun
-  $('replayBtn').classList.add('on');
+  const rb=$('replayBtn'); if(rb)rb.classList.add('on');
   paintPlayBtn();
   $('liveBtn').classList.remove('on');
 }
 function stopReplay(){
   replaying=false;
-  $('replayBtn').classList.remove('on');
+  const rb2=$('replayBtn'); if(rb2)rb2.classList.remove('on');
   paintPlayBtn();
 }
-$('replayBtn').addEventListener('click',()=>{ startReplay(); });   // ⟲ always restarts from the gun
+// replay button removed — the ▶ transport control handles replay
 
 function paintPlayBtn(){
   $('playBtn').innerHTML = replaying
@@ -901,6 +899,13 @@ function paintPlayBtn(){
 }
 $('playBtn').addEventListener('click',()=>{
   if(replaying){ stopReplay(); return; }
+  // if OVERALL is showing (or nothing valid is selected), fall back to the latest race
+  if(overallMode || !races[activeIdx] || !races[activeIdx].startMs){
+    let idx=races.findIndex(x=>['inProgress','starting','preStart','finishing'].includes(x.stage));
+    if(idx<0) idx=races.length-1;
+    if(idx<0) return;
+    if(idx!==activeIdx) switchRace(idx); else overallMode=false;
+  }
   const r=races[activeIdx]; if(!r||!r.startMs)return;
   overallMode=false; renderRaceSel();
   // resume from current scrub point; if we're parked at the live edge, start from the gun
