@@ -350,40 +350,54 @@ function raceEnd(r){
   return null;
 }
 let firstLoad=true;
+const OVERLAP=180000;   // re-request the last 3 min every poll: boats upload in batches,
+                        // so a single "newest timestamp" watermark silently drops laggards
 async function pollTele(){
   try{
     const now=Date.now();
     const r=races[activeIdx];
     const end=raceEnd(r);
-    if(end&&lastTs>=end) return; // finished race fully loaded
     let after;
     if(firstLoad){
       after=(r&&r.startMs? r.startMs-240000 : now-720000);
-    } else after=lastTs;
+    } else {
+      after=Math.max(0,(lastTs||now)-OVERLAP);
+      if(end&&lastTs>=end+1) return;   // finished race, nothing more will arrive
+    }
     const before=end? end : now+60000;
     const url=`${TELE}?after=${after}&before=${before}&limit=100000&division=${DIVISION}`;
     const res=await fetch(url); if(!res.ok)return;
     const d=await res.json();
     if(!d.Rows||!d.Fields){ if(firstLoad){firstLoad=false;} return; }
     const F={}; d.Fields.forEach((f,i)=>F[f]=i);
-    let added=0;
+    let added=0, maxTs=lastTs;
+    const touched=new Set(); const touchedMarks=new Set();
     for(const row of d.Rows){
-      const t=row[F.ts]; if(t<=lastTs&&!firstLoad) continue;
+      const t=row[F.ts];
       const role=row[F.role];
       if(role==='mark'){
-        let mk=markPos.get(row[F.sn]); if(!mk){mk=[];markPos.set(row[F.sn],mk);}
-        mk.push([t,row[F.latitude],row[F.longitude]]);
+        const sn=row[F.sn];
+        let mk=markPos.get(sn); if(!mk){mk=[];markPos.set(sn,mk);}
+        // per-device dedupe, not a global watermark
+        if(!mk.length || t>mk[mk.length-1][0]){
+          mk.push([t,row[F.latitude],row[F.longitude]]); touchedMarks.add(sn);
+        }
       }
       else if(role==='competitor'&&row[F.sail_number]){
         const s=row[F.sail_number];
         let b=boats.get(s); if(!b){b={samples:[],everUp:false};boats.set(s,b);}
-        b.samples.push([t,row[F.latitude],row[F.longitude],row[F.heading],row[F.sog]]);
-        added++;
+        // each boat keeps its OWN latest timestamp, so laggards still get their data
+        if(!b.samples.length || t>b.samples[b.samples.length-1][0]){
+          b.samples.push([t,row[F.latitude],row[F.longitude],row[F.heading],row[F.sog]]);
+          touched.add(s); added++;
+        }
       }
-      if(t>lastTs)lastTs=t;
+      if(t>maxTs)maxTs=t;
     }
-    // keep samples sorted (poll pages can interleave on first load)
-    if(firstLoad){ for(const b of boats.values()) b.samples.sort((a,b)=>a[0]-b[0]); }
+    lastTs=maxTs;
+    // overlapping windows can deliver rows out of order
+    for(const s of touched){ const b=boats.get(s); b.samples.sort((x,y)=>x[0]-y[0]); }
+    for(const sn of touchedMarks){ markPos.get(sn).sort((x,y)=>x[0]-y[0]); }
     if(added>0) lastRxWall=Date.now();
     firstLoad=false;
     projDirty=true;
@@ -591,8 +605,7 @@ function listName(full){
   t=t.replace(/\b(jr|sr|ii|iii|iv|dds|md|phd|esq)\.?$/i,'').trim();
   const parts=t.split(/\s+/).filter(Boolean);
   if(parts.length<2) return parts[0]||'';
-  const last=parts[parts.length-1];
-  return parts[0]+' '+last;   // first name + surname
+  return parts[parts.length-1];   // surname only
 }
 function surname(full){
   if(!full) return '';
@@ -871,17 +884,29 @@ function showScorecard(sail, rowEl){
   card.innerHTML=`<div class="sc-h">${shortSail(sail)}</div>
     <div class="sc-n">${NAMES[sail]||''}</div>
     <table>${rows}<tr class="tot"><td>Total</td><td class="r">${total}</td></tr></table>`;
+  // make it measurable, then position it beside the row that was tapped
+  card.style.visibility='hidden';
   card.classList.add('on');
-  // place to the RIGHT of the board so the list stays readable
-  const stage=cvs.parentElement.getBoundingClientRect();
-  const board=$('board').getBoundingClientRect();
-  const row=rowEl.getBoundingClientRect();
-  const cw=card.offsetWidth||170, ch=card.offsetHeight||120;
-  let left=(board.right-stage.left)+10;
-  if(left+cw>stage.width-8) left=Math.max(8,(board.left-stage.left)-cw-10);
-  let top=(row.top-stage.top)-6;
-  top=Math.min(Math.max(6,top), stage.height-ch-6);
-  card.style.left=left+'px'; card.style.top=top+'px';
+  // capture geometry NOW — the list re-renders on selection and detaches rowEl
+  const stage0=cvs.parentElement.getBoundingClientRect();
+  const board0=$('board').getBoundingClientRect();
+  const row0=rowEl.getBoundingClientRect();
+  requestAnimationFrame(()=>{
+    const stage=stage0, board=board0, row=row0;
+    const cw=card.offsetWidth, ch=card.offsetHeight;
+    // prefer the right of the list; flip left if it would overflow
+    let left=(board.right-stage.left)+10;
+    if(left+cw>stage.width-8){
+      const alt=(board.left-stage.left)-cw-10;
+      left = alt>=8 ? alt : Math.max(8, stage.width-cw-8);
+    }
+    // vertically CENTRE the card on the tapped row, clamped to the stage
+    let top=(row.top-stage.top)+row.height/2-ch/2;
+    top=Math.min(Math.max(6,top), Math.max(6,stage.height-ch-6));
+    card.style.left=Math.round(left)+'px';
+    card.style.top=Math.round(top)+'px';
+    card.style.visibility='';
+  });
 }
 function hideScorecard(){ $('scorecard').classList.remove('on'); }
 // mobile has no mouseleave: any tap outside the card (or a scroll/resize) dismisses it
