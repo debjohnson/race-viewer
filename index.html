@@ -230,6 +230,8 @@ const POLL_MS=3000;           // telemetry poll
 const DOC_POLL_MS=30000;      // regatta doc poll (new races / finishes)
 const LIVE_LAG=4000;          // render this far behind wall clock for smoothness
 let NAMES={};
+// Skipper names from the event roster, keyed by bare sail number.
+const NAME_OVERRIDES={"2667":"John Schindler","2890":"John Harrop","2850":"Tom Sollas","2945":"Allan Terhune, Jr.","2916":"Matt Fisher","2323":"Jason Pursell","2927":"Justin Adams","2848":"Andy McDonald","1973":"Mary Anne Hopper","1867":"Joe Schaub IV","1690":"Dan Vought","2944":"Keven Briggs","2801":"Diane Gallo","2921":"Jarrett Lynn","2756":"Chris Brooks","1821":"Frank Scalisi","2055":"Lucia Kinder","2931":"Thomas Bowen","1955":"Richard A Morris Jr.","1858":"Eric Rivard","2636":"James Eckert","2555":"Frank Reeg","2540":"James H Dixon","2300":"Marvin J Peterson","2717":"Noel Neuman","2906":"Dave Ebel","1897":"Tony Pugh","2400":"Thomas C Antunes","2747":"Grant Gerondale","1860":"Mark Beaton","1803":"Karl Schutte","2862":"Bill Mergenthaler","1889":"Eddie Williams","2823":"Scott Colesworthy","2475":"John Sepanski","2913":"Michael Dow","2741":"John Murphy","2919":"Tim McMahon","2903":"Kent Sisk","2922":"Michael Lenkeit","2872":"Jeff Gentzen","2025":"Olivia Windemuller","2900":"Brett C Hatton","2949":"Chris Kubicek","2871":"Jordan Murphy","2811":"Dan Allen","2689":"Braden Johnson","2859":"John McNeil","2762":"Cole Cahill","1786":"Bradford I Sprouse","2923":"Sean M Fidler","1989":"Robert P Terry DDS","2904":"John Poast","2835":"Ramsey Morris","2790":"Todd Tesar","1449":"Jakson R. Landis-Hutchinson","284":"Oscar Anderson","2674":"Matt Wean","2816":"Stu Fisher","2641":"Tom Klaban","2757":"Cam McNeil","2843":"David Helmick","2651":"Charlie Knape","2854":"Jan Havmoeller","2930":"Jamie Searles","2912":"Ted Keller","2702":"Scott Harestad","1943":"Vicki Clayton","2905":"Kyle Verplank","1885":"Mark Makielski","2788":"Mike Considine","2833":"Stefan Schmidt","2883":"Mark Johnson","2743":"Steve Fader","2670":"Kenton L Morris","2815":"Phelps Morris","2784":"Jeffrey Braddon","2285":"Jim Babel","2320":"Thomas Keenan","2873":"Michael Reisinger","2244":"Brian F McMurray","2800":"Christy Will","2562":"Will Velek","2846":"Bill Draheim","2935":"Jim Ward","2520":"John Eckart","2781":"Paul Hanson","2169":"Julie Clayton","2819":"Bruce Rosenheimer","2886":"Mark Lewis","2802":"Buzz Reynolds","2824":"John Grzybek","2663":"Luke Sturges","2455":"Bruce Patterson","2929":"Thane Morgan","2704":"Todd Bosgraaf"};
 
 /* ================= STATE ================= */
 let races=[];            // [{num, stage, startMs, finishes:[{sail,pos,ms}]}]
@@ -307,7 +309,14 @@ async function pollDoc(){
       markRoles=mr;
     }
     for(const p of (div.participants||[])){
-      if(p.sailNumber&&p.boatName&&/[A-Za-z]{2}/.test(p.boatName)) NAMES[p.sailNumber]=p.boatName;
+      if(!p.sailNumber) continue;
+      const bare=String(p.sailNumber).replace(/^USA\s*/,'').trim();
+      const over=NAME_OVERRIDES[bare]||NAME_OVERRIDES[p.sailNumber];
+      if(over){ NAMES[p.sailNumber]=over; continue; }
+      // course-mark artifacts and placeholders are not skipper names
+      const bad=/^(offset|done|gate|start|finish|ww|wwos|mark|pin|rc|tbd|n\/?a|xx+)$/i;
+      const bn=(p.boatName||'').trim();
+      if(bn && !bad.test(bn) && /[A-Za-z]{2}/.test(bn)) NAMES[p.sailNumber]=bn;
     }
     const newRaces=(div.races||[]).map(r=>{
       const st=(r.starts||[])[0];
@@ -544,6 +553,14 @@ function computeOrder(t){
 
 /* ================= drawing ================= */
 function shortSail(s){return String(s).replace(/^USA\s*/,'');}
+function surname(full){
+  if(!full) return '';
+  // drop credentials/suffixes, then take the family name
+  let t=String(full).replace(/,.*$/,'').trim();
+  t=t.replace(/\b(jr|sr|ii|iii|iv|dds|md|phd|esq)\.?$/i,'').trim();
+  const parts=t.split(/\s+/).filter(Boolean);
+  return parts.length?parts[parts.length-1]:'';
+}
 function boatColor(s){ let h=0; for(const c of s)h=(h*31+c.charCodeAt(0))%360; return `hsl(${h} 55% 62%)`; }
 function label(x,y,text,color){
   ctx.font='700 10px "Saira Condensed",sans-serif';
@@ -581,7 +598,7 @@ function drawBoat(p,hdg,sailNo,isLead,isSel,col,zoomed){
       ? '600 '+Math.round(11*Math.min(boatScale,1.3))+'px Inter,system-ui,sans-serif'
       : '700 '+Math.round(11*Math.min(boatScale,1.4))+'px "Saira Condensed",sans-serif';
     ctx.textAlign='center';ctx.textBaseline='middle';
-    const disp = useName ? nm.split(' ').slice(-1)[0] : shortSail(sailNo);
+    const disp = useName ? surname(nm) : shortSail(sailNo);
     const w=ctx.measureText(disp).width+7;
     ctx.fillStyle=isLead?'rgba(242,193,78,.95)':(isSel?'rgba(111,211,198,.95)':'rgba(11,42,58,.8)');
     ctx.beginPath();ctx.roundRect(p[0]-w/2,p[1]-size-16,w,14,4);ctx.fill();
@@ -735,7 +752,7 @@ function renderOverall(){
     ? arr.map((o,i)=>`<div class="row${o.sail===sel?' sel':''}${i===0?' lead':''}" data-s="${o.sail}">
         <span class="pos">${i+1}</span>
         <span class="dot" style="background:${i===0?'#F2C14E':boatColor(o.sail)}"></span>
-        <span class="who"><b>${shortSail(o.sail)}</b> <i>${(NAMES[o.sail]||'').split(' ').slice(-1)[0]||''}</i></span>
+        <span class="who"><b>${shortSail(o.sail)}</b> <i>${surname(NAMES[o.sail])}</i></span>
         <span class="pts">${o.pts}</span>
       </div>`).join('')
     : '<div style="color:var(--haze);font-size:12px;padding:6px">No finishes scored yet.</div>';
@@ -755,7 +772,7 @@ function renderBoard(order,t){
     html+=`<div class="${cls.join(' ')}" data-s="${o.sail}">
       <span class="pos">${i+1}</span>
       <span class="dot" style="background:${i===0&&!o.finished?'#F2C14E':boatColor(o.sail)}"></span>
-      <span class="who"><b>${shortSail(o.sail)}</b> <i>${nm?nm.split(' ').slice(-1)[0]:''}</i>${o.finished?' <i>FIN</i>':''}${o.offair?' <i title="tracker off air">·</i>':''}</span>
+      <span class="who"><b>${shortSail(o.sail)}</b> <i>${surname(nm)}</i>${o.finished?' <i>FIN</i>':''}${o.offair?' <i title="tracker off air">·</i>':''}</span>
     </div>`;
   });
   if(html!==lastRowsHTML){ rowsEl.innerHTML=html; lastRowsHTML=html; }
