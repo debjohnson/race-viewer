@@ -104,8 +104,13 @@ canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-acti
 .hint{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--haze);
   background:rgba(10,34,48,.7);padding:4px 10px;border-radius:20px;white-space:nowrap;transition:opacity .4s}
 
-.bar{flex:0 0 auto;padding:10px 14px 14px;border-top:1px solid var(--grid);
-  display:flex;align-items:center;gap:12px;background:var(--panel)}
+.bar{flex:0 0 auto;padding:8px 14px 12px;border-top:1px solid var(--grid);
+  display:flex;align-items:center;gap:10px;background:var(--panel)}
+.bar.hid{display:none}
+.bartab{display:none;width:100%;border:none;border-top:1px solid var(--grid);background:var(--panel);
+  color:var(--haze);font-family:'Saira Condensed',sans-serif;font-weight:700;font-size:11px;
+  letter-spacing:.12em;padding:9px 0;cursor:pointer}
+.bartab.on{display:block}
 .playbtn{width:40px;height:40px;flex:0 0 auto;border-radius:50%;border:none;cursor:pointer;
   background:var(--wind);color:var(--water);display:flex;align-items:center;justify-content:center;padding:0}
 .playbtn svg{width:18px;height:18px}
@@ -173,7 +178,9 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
     </div>
     <div class="hint" id="hint" style="opacity:0">Tap a boat to follow · drag to pan · pinch to zoom</div>
   </div>
-  <div class="bar">
+  <button class="bartab" id="barTab">▲ PLAYBACK</button>
+  <div class="bar" id="bar">
+    <button class="livebtn" id="barHide" title="Hide controls" style="padding:6px 8px;font-size:12px;line-height:1">▼</button>
     <button class="playbtn" id="playBtn" aria-label="Play">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7z"/></svg>
     </button>
@@ -350,58 +357,94 @@ function raceEnd(r){
   return null;
 }
 let firstLoad=true;
-const OVERLAP=180000;   // re-request the last 3 min every poll: boats upload in batches,
-                        // so a single "newest timestamp" watermark silently drops laggards
+const OVERLAP=180000;      // re-request the last 3 min: boats upload in batches
+const PAGE=100000;         // hard server cap on rows per request
+let histFrom=null, histTo=null, histDone=true;   // background backfill cursor
+
+function beginHistory(r,quickStart){
+  histFrom = (r&&r.startMs) ? r.startMs-240000 : Date.now()-1800000;
+  histTo   = quickStart;
+  histDone = histFrom>=histTo;
+}
+
+async function fetchWindow(after,before){
+  const url=`${TELE}?after=${after}&before=${before}&limit=${PAGE}&division=${DIVISION}`;
+  const res=await fetch(url); if(!res.ok) return null;
+  const d=await res.json();
+  if(!d.Rows||!d.Fields) return {rows:0,maxTs:0};
+  const F={}; d.Fields.forEach((f,i)=>F[f]=i);
+  let maxTs=0, added=0;
+  const touched=new Set(), touchedMarks=new Set();
+  for(const row of d.Rows){
+    const t=row[F.ts];
+    if(t>maxTs)maxTs=t;
+    const role=row[F.role];
+    if(role==='mark'){
+      const sn=row[F.sn];
+      let mk=markPos.get(sn); if(!mk){mk=[];markPos.set(sn,mk);}
+      mk.push([t,row[F.latitude],row[F.longitude]]); touchedMarks.add(sn);
+    } else if(role==='competitor'&&row[F.sail_number]){
+      const s=row[F.sail_number];
+      let b=boats.get(s); if(!b){b={samples:[],everUp:false};boats.set(s,b);}
+      // accept everything; duplicates are removed after the sort below.
+      // (Only taking samples newer than the last / older than the first threw
+      //  away every middle page of the history backfill, leaving gaps that got
+      //  interpolated straight across — boats appeared in the wrong place.)
+      b.samples.push([t,row[F.latitude],row[F.longitude],row[F.heading],row[F.sog]]);
+      touched.add(s); added++;
+    }
+  }
+  for(const s of touched){
+    const b=boats.get(s);
+    b.samples.sort((x,y)=>x[0]-y[0]);
+    const out=[]; let prev=-1;
+    for(const sm of b.samples){ if(sm[0]!==prev){ out.push(sm); prev=sm[0]; } }
+    b.samples=out; b.legT=undefined;
+  }
+  for(const sn of touchedMarks){
+    const mk=markPos.get(sn); mk.sort((x,y)=>x[0]-y[0]);
+    const out=[]; let prev=-1;
+    for(const s2 of mk){ if(s2[0]!==prev){ out.push(s2); prev=s2[0]; } }
+    markPos.set(sn,out);
+  }
+  if(added>0) lastRxWall=Date.now();
+  return {rows:d.Rows.length, maxTs, added};
+}
+
 async function pollTele(){
   try{
     const now=Date.now();
     const r=races[activeIdx];
     const end=raceEnd(r);
-    let after;
+
     if(firstLoad){
-      after=(r&&r.startMs? r.startMs-240000 : now-720000);
-    } else {
-      after=Math.max(0,(lastTs||now)-OVERLAP);
-      if(end&&lastTs>=end+1) return;   // finished race, nothing more will arrive
+      // paint the part being shown FIRST, then backfill the rest in the background
+      const target = end ? end : now;
+      const quickStart = Math.max((r&&r.startMs)?r.startMs-240000:0, target-480000);
+      const q=await fetchWindow(quickStart, target+60000);
+      if(q&&q.maxTs) lastTs=Math.max(lastTs,q.maxTs);
+      beginHistory(r,quickStart);
+      firstLoad=false; projDirty=true; teleOK=true;
+      return;
     }
-    const before=end? end : now+60000;
-    const url=`${TELE}?after=${after}&before=${before}&limit=100000&division=${DIVISION}`;
-    const res=await fetch(url); if(!res.ok)return;
-    const d=await res.json();
-    if(!d.Rows||!d.Fields){ if(firstLoad){firstLoad=false;} return; }
-    const F={}; d.Fields.forEach((f,i)=>F[f]=i);
-    let added=0, maxTs=lastTs;
-    const touched=new Set(); const touchedMarks=new Set();
-    for(const row of d.Rows){
-      const t=row[F.ts];
-      const role=row[F.role];
-      if(role==='mark'){
-        const sn=row[F.sn];
-        let mk=markPos.get(sn); if(!mk){mk=[];markPos.set(sn,mk);}
-        // per-device dedupe, not a global watermark
-        if(!mk.length || t>mk[mk.length-1][0]){
-          mk.push([t,row[F.latitude],row[F.longitude]]); touchedMarks.add(sn);
-        }
-      }
-      else if(role==='competitor'&&row[F.sail_number]){
-        const s=row[F.sail_number];
-        let b=boats.get(s); if(!b){b={samples:[],everUp:false};boats.set(s,b);}
-        // each boat keeps its OWN latest timestamp, so laggards still get their data
-        if(!b.samples.length || t>b.samples[b.samples.length-1][0]){
-          b.samples.push([t,row[F.latitude],row[F.longitude],row[F.heading],row[F.sog]]);
-          touched.add(s); added++;
-        }
-      }
-      if(t>maxTs)maxTs=t;
+
+    // background history paging — the server caps each response, so walk forward
+    if(!histDone){
+      const p=await fetchWindow(histFrom, histTo);
+      if(!p){ histDone=true; }
+      else if(p.rows<PAGE || !p.maxTs || p.maxTs>=histTo-1000){ histDone=true; }
+      else { histFrom=p.maxTs; }
+      projDirty=true;
+      if(end) return;      // finished race: nothing live to chase
     }
-    lastTs=maxTs;
-    // overlapping windows can deliver rows out of order
-    for(const s of touched){ const b=boats.get(s); b.samples.sort((x,y)=>x[0]-y[0]); }
-    for(const sn of touchedMarks){ markPos.get(sn).sort((x,y)=>x[0]-y[0]); }
-    if(added>0) lastRxWall=Date.now();
-    firstLoad=false;
-    projDirty=true;
-    teleOK=true;
+
+    if(end){ if(histDone) return; }
+    else {
+      const after=Math.max(0,(lastTs||now)-OVERLAP);
+      const p=await fetchWindow(after, now+60000);
+      if(p&&p.maxTs) lastTs=Math.max(lastTs,p.maxTs);
+      projDirty=true; teleOK=true;
+    }
   }catch(e){ lastErr='position feed: '+(e.message||e); }
 }
 
@@ -410,7 +453,7 @@ function resetView(){ manualView=false; view={z:1,ox:0,oy:0}; }
 function switchRace(idx){
   activeIdx=idx; sel=null; overallMode=false; stopReplay();
   const r=races[idx];
-  boats.clear(); lastTs=0; firstLoad=true; cursor=null; resetView();
+  boats.clear(); markPos.clear(); lastTs=0; firstLoad=true; cursor=null; histDone=true; resetView();
   winStart = r&&r.startMs ? r.startMs-180000 : Date.now()-600000;
   $('raceTitle').textContent = r? `Race ${r.num} · ${r.stage==='finished'?'Result':'Live'}`:'—';
   pollTele();
@@ -420,7 +463,7 @@ function renderRaceSel(){
   const sel=$('raceSel');
   const opts=races.map((r,i)=>`<option value="${i}" ${(!overallMode&&i===activeIdx)?'selected':''}>RACE ${r.num}${r.stage==='finished'?' ✓':' ●'}</option>`);
   const done=races.filter(r=>(r.finishes||[]).length).length;
-  if(done>0) opts.push(`<option value="overall" ${overallMode?'selected':''}>OVERALL (${done} race${done>1?'s':''})</option>`);
+  if(done>0) opts.push(`<option value="overall" ${overallMode?'selected':''}>OVERALL (${done} races${done>=5?', 1 drop':''})</option>`);
   sel.innerHTML=opts.join('');
 }
 $('raceSel').addEventListener('change',e=>{
@@ -566,24 +609,54 @@ function courseAxis(){
   const L=Math.hypot(w[0]-sm[0],w[1]-sm[1]);
   return {sm,ax:(w[0]-sm[0])/L,ay:(w[1]-sm[1])/L,L};
 }
+// Mid-race ranking.
+// Per-boat lap counting proved unreliable: tracks are sparse enough that
+// roundings get missed, and one wrong lap count throws a boat to the top or
+// bottom of the list. A one-design fleet sails the legs together, so instead we
+// work out which mark THE FLEET is sailing to and rank everyone by distance to
+// it. Boats genuinely a leg behind will read high; that is the known limit.
+let fleetTgt={t:0,which:'ww'};
+function fleetTarget(t,ca){
+  if(Math.abs(t-fleetTgt.t)<4000) return fleetTgt.which;
+  const ww=markByRole('ww'), lm=lineMarks();
+  const gate= lm ? [(lm[0][0]+lm[1][0])/2,(lm[0][1]+lm[1][1])/2] : null;
+  const fr=(p)=>{ const m=toM(p[1],p[2]);
+    return ((m[0]-ca.sm[0])*ca.ax+(m[1]-ca.sm[1])*ca.ay)/ca.L; };
+  const now=[],prev=[];
+  for(const [s,b] of boats){
+    const p=sampleAt(b,t), q=sampleAt(b,t-60000);
+    if(p) now.push(fr(p));
+    if(q) prev.push(fr(q));
+  }
+  if(now.length<3||prev.length<3) return fleetTgt.which;
+  const med=(v)=>{v=v.slice().sort((x,y)=>x-y);return v[Math.floor(v.length/2)];};
+  const d=med(now)-med(prev);
+  fleetTgt={t, which: d>=0 ? 'ww':'gate'};
+  return fleetTgt.which;
+}
+function legProgress(b,t,ca){
+  if(!ca) return 0;
+  const p=sampleAt(b,t); if(!p) return -1e9;
+  const ww=markByRole('ww'), lm=lineMarks();
+  const gate= lm ? [(lm[0][0]+lm[1][0])/2,(lm[0][1]+lm[1][1])/2] : null;
+  const which=fleetTarget(t,ca);
+  const target=(which==='ww') ? (ww||gate) : (gate||ww);
+  if(!target) return 0;
+  const a=toM(p[1],p[2]), m=toM(target[0],target[1]);
+  const d=Math.hypot(a[0]-m[0],a[1]-m[1]);
+  return 1e5-d;      // closer to the mark the fleet is heading for = further ahead
+}
+
 function computeOrder(t){
   const ca=courseAxis(); const r=races[activeIdx]||{};
   const finBy={}; (r.finishes||[]).forEach(f=>finBy[f.sail]=f);
   const arr=[];
   for(const [s,b] of boats){
     const p=sampleAt(b,t); if(!p)continue;
-    let prog=0;
-    if(ca){
-      const m=toM(p[1],p[2]);
-      const a=(m[0]-ca.sm[0])*ca.ax+(m[1]-ca.sm[1])*ca.ay;
-      if(a>=ca.L*0.96)b.everUp=true;
-      prog=b.everUp&&a<ca.L*0.9 ? ca.L+(ca.L-a) : a;
-    }
     const f=finBy[s];
-    const finished=f&&t>=f.ms;
-    arr.push({sail:s,prog,finished,fpos:f?f.pos:999,sog:p[4],hdg:p[3]});
+    arr.push({sail:s,prog:legProgress(b,t,ca),finished:f&&t>=f.ms,
+              fpos:f?f.pos:999,sog:p[4],hdg:p[3]});
   }
-  // include official finishers whose tracker stopped reporting after they crossed
   const seen=new Set(arr.map(a=>a.sail));
   for(const f of (r.finishes||[])){
     if(seen.has(f.sail))continue;
@@ -802,17 +875,33 @@ function overallStandings(){
     const placed=new Set();
     for(const f of r.finishes){
       const s=f.sail;
-      if(!tally[s]) tally[s]={sail:s,pts:0,scores:[],wins:0};
-      tally[s].pts+=f.pos; tally[s].scores.push(f.pos);
+      if(!tally[s]) tally[s]={sail:s,raw:[],wins:0};
+      tally[s].raw.push({num:r.num,pos:f.pos,dnf:false});
       if(f.pos===1) tally[s].wins++;
       placed.add(s);
     }
-    // boats that raced earlier but missed this race take DNF points
-    for(const s in tally){ if(!placed.has(s)){ tally[s].pts+=dnf; tally[s].scores.push(dnf); } }
+    for(const s in tally){
+      if(!placed.has(s)) tally[s].raw.push({num:r.num,pos:dnf,dnf:true});
+    }
   }
+  // Drop each boat's worst race once the series is long enough.
+  // (Standard for a series of this length; the dropped race is shown struck out.)
+  const DROP_AFTER=5;
   const arr=Object.values(tally);
+  for(const b of arr){
+    b.raw.sort((x,y)=>x.num-y.num);
+    b.dropIdx=-1;
+    if(b.raw.length>=DROP_AFTER){
+      let worst=-1,wv=-1;
+      b.raw.forEach((x,i)=>{ if(x.pos>wv){wv=x.pos;worst=i;} });
+      b.dropIdx=worst;
+    }
+    b.scores=b.raw.map(x=>x.pos);
+    b.pts=b.raw.reduce((s,x,i)=>s+(i===b.dropIdx?0:x.pos),0);
+    b.total=b.raw.reduce((s,x)=>s+x.pos,0);
+  }
   arr.sort((a,b)=> a.pts-b.pts || b.wins-a.wins || a.sail.localeCompare(b.sail));
-  return {arr,count:scored.length};
+  return {arr,count:scored.length,dropped:arr.length&&arr[0].dropIdx>=0};
 }
 function renderOverall(){
   const {arr,count}=overallStandings();
@@ -855,7 +944,7 @@ $('rows').addEventListener('click',e=>{
   const rw=e.target.closest('.row'); if(!rw)return;
   const was=sel;
   sel=(sel===rw.dataset.s)?null:rw.dataset.s;
-  if(sel){ centerOn(sel); if(overallMode) showScorecard(sel,rw); }
+  if(sel){ centerOn(sel); showScorecard(sel,rw); }
   else hideScorecard();
 });
 function centerOn(s){
@@ -870,20 +959,22 @@ function centerOn(s){
 // board toggle removed with the hamburger tab
 
 function showScorecard(sail, rowEl){
-  if(!overallMode) return;
   const card=$('scorecard');
-  const scored=races.filter(r=>(r.finishes||[]).length);
-  const fleet=Math.max(1,...scored.map(r=>r.finishes.length));
-  let total=0, rows='';
-  for(const r of scored){
-    const f=(r.finishes||[]).find(x=>x.sail===sail);
-    const pts=f?f.pos:fleet+1;
-    total+=pts;
-    rows+=`<tr><td>Race ${r.num}</td><td class="r">${f?f.pos:'DNF'}</td></tr>`;
+  const st=overallStandings();
+  const me=st.arr.find(x=>x.sail===sail);
+  let rows='';
+  if(me){
+    me.raw.forEach((x,i)=>{
+      const drop=(i===me.dropIdx);
+      const here=(!overallMode && x.num===(races[activeIdx]||{}).num);
+      rows+=`<tr class="${drop?'drop':''}${here?' cur':''}"><td>Race ${x.num}</td>`
+          + `<td class="r">${drop?'<s>'+x.pos+'</s>':x.pos}${x.dnf?' <i style="font-style:normal;font-size:9px">DNF</i>':''}</td></tr>`;
+    });
   }
+  const total = me?me.pts:0;
   card.innerHTML=`<div class="sc-h">${shortSail(sail)}</div>
     <div class="sc-n">${NAMES[sail]||''}</div>
-    <table>${rows}<tr class="tot"><td>Total</td><td class="r">${total}</td></tr></table>`;
+    <table>${rows}<tr class="tot"><td>Net</td><td class="r">${total}</td></tr></table>`;
   // make it measurable, then position it beside the row that was tapped
   card.style.visibility='hidden';
   card.classList.add('on');
@@ -999,7 +1090,7 @@ seek.addEventListener('change',()=>{scrubbing=false;});
 function liveEdge(){
   const r=races[activeIdx];
   const end=raceEnd(r);
-  if(end) return Math.min(lastTs||end, end);
+  if(end) return end;   // a finished race sits at its end
   return Math.max(lastTs, Date.now()-LIVE_LAG);
 }
 $('liveBtn').addEventListener('click',()=>{cursor=null;seek.value=1000;overallMode=false;stopReplay();renderRaceSel();});
@@ -1021,6 +1112,15 @@ function paintTopBtn(){
   el.textContent = topOnly?'TOP 10':'ALL BOATS';
   el.classList.toggle('on',topOnly);
 }
+function setBar(show){
+  $('bar').classList.toggle('hid',!show);
+  $('barTab').classList.toggle('on',!show);
+  try{localStorage.setItem('barShown',show?'1':'0');}catch(e){}
+  resize();
+}
+$('barHide').addEventListener('click',()=>setBar(false));
+$('barTab').addEventListener('click',()=>setBar(true));
+try{ if(localStorage.getItem('barShown')==='0') setBar(false); }catch(e){}
 $('topBtn').addEventListener('click',()=>{
   topOnly=!topOnly;
   paintTopBtn(); lastRowsHTML='';
@@ -1124,7 +1224,9 @@ function tick(){
   if(r&&r.startMs){
     $('clock').innerHTML=`<small id="stageTxt">${r.stage==='finished'?'final':'vs gun'}</small><b>${fmtRel(t,r.startMs)}</b>`;
     $('t-cur').textContent=fmtRel(winStart,r.startMs);
-    $('t-end').textContent=cursor===null?'live':fmtRel(t,r.startMs);
+    const over=!!raceEnd(r);
+    $('t-end').textContent=over?fmtRel(t,r.startMs):(cursor===null?'live':fmtRel(t,r.startMs));
+    $('liveBtn').style.display=over?'none':'';
     // start flag on track
     const end=liveEdge();
     const frac=(r.startMs-winStart)/Math.max(1,(end-winStart));
